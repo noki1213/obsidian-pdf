@@ -3,8 +3,8 @@
 	inset: 0;
 	z-index: 200;
 	pointer-events: auto;
-	/* 指のスクロール・ピンチズームは許可し、ペン（Apple Pencil）だけ描画に使う */
-	touch-action: pan-x pan-y pinch-zoom;
+	/* touch-action: none でペンのスクロールを完全にブロック。指スクロールはJSで手動転送 */
+	touch-action: none;
 }
 
 /* プラグイン起動中はPDF.jsのアノテーション層を非表示にして二重描画を防ぐ */

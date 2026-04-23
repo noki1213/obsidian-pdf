@@ -19816,6 +19816,7 @@ var PdfOverlayController = class {
     this.redrawQueued = false;
     this.isApplying = false;
     this.isDirty = false;
+    this.touchScrollTracker = /* @__PURE__ */ new Map();
     this.plugin = options.plugin;
     this.file = options.file;
     this.viewerEl = options.viewerEl;
@@ -19846,6 +19847,10 @@ var PdfOverlayController = class {
     this.refreshToolbarState();
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(this.viewerEl);
+    this.pageResizeObserver = new ResizeObserver(() => this.render());
+    for (const pageEl of Array.from(this.viewerEl.querySelectorAll(".page"))) {
+      this.pageResizeObserver.observe(pageEl);
+    }
     this.bindPointerEvents();
     this.render();
   }
@@ -19858,6 +19863,7 @@ var PdfOverlayController = class {
     }
     this.viewerEl.classList.remove("pdf-ink-active");
     this.resizeObserver.disconnect();
+    this.pageResizeObserver.disconnect();
     this.overlayEl.remove();
     this.toolbarGroup.remove();
     this.lassoMenuEl.remove();
@@ -20026,6 +20032,8 @@ var PdfOverlayController = class {
   getPageMetrics() {
     const pages = Array.from(this.viewerEl.querySelectorAll(".page"));
     const viewerRect = this.viewerEl.getBoundingClientRect();
+    const scrollLeft = this.viewerEl.scrollLeft;
+    const scrollTop = this.viewerEl.scrollTop;
     const results = [];
     for (const pageEl of pages) {
       const pageNumber = Number(pageEl.dataset.pageNumber);
@@ -20033,8 +20041,8 @@ var PdfOverlayController = class {
       const rect = pageEl.getBoundingClientRect();
       results.push({
         pageNumber,
-        left: rect.left - viewerRect.left,
-        top: rect.top - viewerRect.top,
+        left: rect.left - viewerRect.left + scrollLeft,
+        top: rect.top - viewerRect.top + scrollTop,
         width: rect.width,
         height: rect.height
       });
@@ -20234,7 +20242,11 @@ var PdfOverlayController = class {
     this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
   }
   onPointerDown(event) {
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      this.overlayEl.setPointerCapture(event.pointerId);
+      this.touchScrollTracker.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      return;
+    }
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -20289,7 +20301,15 @@ var PdfOverlayController = class {
     }
   }
   onPointerMove(event) {
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      const prev = this.touchScrollTracker.get(event.pointerId);
+      this.touchScrollTracker.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (prev && this.touchScrollTracker.size === 1) {
+        this.viewerEl.scrollLeft -= event.clientX - prev.x;
+        this.viewerEl.scrollTop -= event.clientY - prev.y;
+      }
+      return;
+    }
     if (!this.pointerDown) return;
     event.preventDefault();
     event.stopPropagation();
@@ -20317,7 +20337,10 @@ var PdfOverlayController = class {
     }
   }
   onPointerUp(event) {
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      this.touchScrollTracker.delete(event.pointerId);
+      return;
+    }
     if (!this.pointerDown) return;
     this.pointerDown = false;
     this.overlayEl.releasePointerCapture(event.pointerId);
