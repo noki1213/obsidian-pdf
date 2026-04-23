@@ -19651,6 +19651,7 @@ var PDFButton_default = PDFButton;
 
 // src/main.ts
 var EMPTY_DATA = { files: {} };
+var PDF_INK_ANNOT_PREFIX = "pdf-ink-";
 var BRUSH_PRESETS = [
   { id: "pen-black", mode: "pen", color: "#111111", width: 3, opacity: 1, shape: "circle" },
   { id: "pen-cyan", mode: "pen", color: "#3da4ff", width: 3, opacity: 1, shape: "circle" },
@@ -19881,23 +19882,19 @@ var PdfOverlayController = class {
       const sourceBinary = await this.plugin.app.vault.adapter.readBinary(this.file.path);
       const pdfDoc = await PDFDocument_default.load(sourceBinary);
       const pages = pdfDoc.getPages();
+      this.removePluginAnnotations(pages);
+      let skippedImageCount = 0;
       for (const item of this.state.items) {
         if (item.type === "stroke") {
-          this.applyStrokeToPdf(item, pageMetrics, pages);
+          this.applyStrokeToPdf(item, pageMetrics, pages, pdfDoc);
           continue;
         }
-        await this.applyImageToPdf(item, pageMetrics, pdfDoc, pages);
+        skippedImageCount++;
       }
       const bytes = await pdfDoc.save();
       const output = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
       await this.plugin.app.vault.modifyBinary(this.file, output);
-      this.state = { items: [] };
-      this.clearLassoSelection();
-      this.past = [];
-      this.future = [];
-      this.plugin.updateFileState(this.file.path, this.state);
-      this.render();
-      new import_obsidian.Notice("Saved.");
+      new import_obsidian.Notice(skippedImageCount > 0 ? `Saved. ${skippedImageCount} image overlay(s) are not saved to PDF yet.` : "Saved.");
     } catch (error2) {
       const message = error2 instanceof Error ? error2.message : String(error2);
       new import_obsidian.Notice(`Save failed: ${message}`);
@@ -19905,7 +19902,7 @@ var PdfOverlayController = class {
       this.isApplying = false;
     }
   }
-  applyStrokeToPdf(item, pageMetrics, pages) {
+  applyStrokeToPdf(item, pageMetrics, pages, pdfDoc) {
     const pointsPx = item.points.map((point) => this.normToPixel(point));
     if (pointsPx.length < 2) return;
     const hitCounts = /* @__PURE__ */ new Map();
@@ -19935,51 +19932,77 @@ var PdfOverlayController = class {
     const pageHeight = page.getHeight();
     const widthPdf = Math.max(0.3, item.width / pageMetric.width * pageWidth);
     const color = hexToRgbNormalized(item.color);
-    for (let i = 1; i < strokePoints.length; i++) {
-      const a = strokePoints[i - 1];
-      const b = strokePoints[i];
-      page.drawLine({
-        start: { x: a.x * pageWidth, y: (1 - a.y) * pageHeight },
-        end: { x: b.x * pageWidth, y: (1 - b.y) * pageHeight },
-        thickness: widthPdf,
-        color: rgb(color.r, color.g, color.b),
-        opacity: item.opacity
-      });
+    const pdfPoints = strokePoints.map((point) => ({
+      x: point.x * pageWidth,
+      y: (1 - point.y) * pageHeight
+    }));
+    const flatInkList = pdfPoints.flatMap((point) => [point.x, point.y]);
+    if (flatInkList.length < 4) return;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const point of pdfPoints) {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+    const pad = Math.max(widthPdf * 1.5, 2);
+    const rect = [
+      Math.max(0, minX - pad),
+      Math.max(0, minY - pad),
+      Math.min(pageWidth, maxX + pad),
+      Math.min(pageHeight, maxY + pad)
+    ];
+    const annotDict = pdfDoc.context.obj({
+      Type: PDFName_default.of("Annot"),
+      Subtype: PDFName_default.of("Ink"),
+      Rect: rect,
+      InkList: [flatInkList],
+      Border: [0, 0, 0],
+      C: [color.r, color.g, color.b],
+      CA: item.opacity,
+      BS: {
+        W: widthPdf,
+        S: PDFName_default.of("S")
+      },
+      T: PDFString_default.of("PDF Ink"),
+      Contents: PDFString_default.of("PDF Ink Stroke"),
+      NM: PDFString_default.of(`${PDF_INK_ANNOT_PREFIX}${item.id}`)
+    });
+    const annotRef = pdfDoc.context.register(annotDict);
+    const annots = this.getPageAnnotsArray(page, pdfDoc);
+    annots.push(annotRef);
+  }
+  removePluginAnnotations(pages) {
+    for (const page of pages) {
+      const annots = page.node.lookupMaybe(PDFName_default.of("Annots"), PDFArray_default);
+      if (!annots) continue;
+      for (let i = annots.size() - 1; i >= 0; i--) {
+        const annotRef = annots.get(i);
+        const annot = page.doc.context.lookup(annotRef);
+        if (!(annot instanceof PDFDict_default)) continue;
+        const nmObject = annot.get(PDFName_default.of("NM"));
+        const nmValue = this.readPdfString(nmObject);
+        if (nmValue.startsWith(PDF_INK_ANNOT_PREFIX)) {
+          annots.remove(i);
+        }
+      }
     }
   }
-  async applyImageToPdf(item, pageMetrics, pdfDoc, pages) {
-    const center = this.normToPixel({
-      x: item.x + item.width / 2,
-      y: item.y + item.height / 2
-    });
-    const pageMetric = this.findPageForPoint(center, pageMetrics);
-    if (!pageMetric) return;
-    const page = pages[pageMetric.pageNumber - 1];
-    if (!page) return;
-    const dataUrl = item.src;
-    const commaIndex = dataUrl.indexOf(",");
-    if (commaIndex === -1) return;
-    const header = dataUrl.slice(0, commaIndex);
-    const base64 = dataUrl.slice(commaIndex + 1);
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+  getPageAnnotsArray(page, pdfDoc) {
+    const current = page.node.lookupMaybe(PDFName_default.of("Annots"), PDFArray_default);
+    if (current) return current;
+    const created = pdfDoc.context.obj([]);
+    page.node.set(PDFName_default.of("Annots"), created);
+    return created;
+  }
+  readPdfString(value) {
+    if (value instanceof PDFString_default || value instanceof PDFHexString_default) {
+      return value.decodeText();
     }
-    const isPng = header.includes("image/png");
-    const image = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-    const pageWidth = page.getWidth();
-    const pageHeight = page.getHeight();
-    const xRatio = clamp01(item.x);
-    const yRatio = clamp01(item.y);
-    const wRatio = clamp01(item.width);
-    const hRatio = clamp01(item.height);
-    page.drawImage(image, {
-      x: xRatio * pageWidth,
-      y: (1 - (yRatio + hRatio)) * pageHeight,
-      width: wRatio * pageWidth,
-      height: hRatio * pageHeight
-    });
+    return "";
   }
   getPageMetrics() {
     const pages = Array.from(this.viewerEl.querySelectorAll(".page"));
@@ -20078,9 +20101,15 @@ var PdfOverlayController = class {
   }
   createLassoMenu() {
     const menu = createDiv({ cls: "pdf-ink-lasso-menu is-hidden" });
+    menu.addEventListener("pointerdown", (event) => event.stopPropagation());
+    menu.addEventListener("pointerup", (event) => event.stopPropagation());
     const makeButton = (text, onClick) => {
       const button = createEl("button", { cls: "pdf-ink-lasso-menu-button", text });
-      button.onclick = onClick;
+      button.addEventListener("pointerdown", (event) => event.stopPropagation());
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onClick();
+      });
       menu.appendChild(button);
     };
     makeButton("Copy", () => this.copySelection());
