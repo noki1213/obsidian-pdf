@@ -19824,6 +19824,7 @@ var PdfOverlayController = class {
     if (!this.viewerEl.style.position) {
       this.viewerEl.style.position = "relative";
     }
+    this.viewerEl.classList.add("pdf-ink-active");
     this.overlayEl = createDiv({ cls: "pdf-ink-overlay" });
     this.drawCanvas = createEl("canvas", { cls: "pdf-ink-overlay-canvas" });
     this.helperCanvas = createEl("canvas", { cls: "pdf-ink-overlay-canvas" });
@@ -19856,6 +19857,7 @@ var PdfOverlayController = class {
       window.clearTimeout(this.autoSaveTimer);
       this.autoSaveTimer = null;
     }
+    this.viewerEl.classList.remove("pdf-ink-active");
     this.resizeObserver.disconnect();
     this.overlayEl.remove();
     this.toolbarGroup.remove();
