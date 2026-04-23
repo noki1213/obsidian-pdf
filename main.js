@@ -20243,6 +20243,7 @@ var PdfOverlayController = class {
     this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event));
   }
   onPointerDown(event) {
+    if (event.pointerType === "touch") return;
     if (event.button !== 0) return;
     event.preventDefault();
     this.overlayEl.setPointerCapture(event.pointerId);
@@ -20296,6 +20297,7 @@ var PdfOverlayController = class {
     }
   }
   onPointerMove(event) {
+    if (event.pointerType === "touch") return;
     if (!this.pointerDown) return;
     const p = this.eventToPixel(event);
     if (this.drawingStroke) {
@@ -20321,6 +20323,7 @@ var PdfOverlayController = class {
     }
   }
   onPointerUp(event) {
+    if (event.pointerType === "touch") return;
     if (!this.pointerDown) return;
     this.pointerDown = false;
     this.overlayEl.releasePointerCapture(event.pointerId);

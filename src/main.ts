@@ -780,6 +780,8 @@ class PdfOverlayController {
 	}
 
 	private onPointerDown(event: PointerEvent) {
+		// 指タッチはPDFのスクロールに使う。Apple Pencil（pen）とマウス（mouse）だけ描画する
+		if (event.pointerType === "touch") return;
 		if (event.button !== 0) return;
 		event.preventDefault();
 		this.overlayEl.setPointerCapture(event.pointerId);
@@ -839,6 +841,7 @@ class PdfOverlayController {
 	}
 
 	private onPointerMove(event: PointerEvent) {
+		if (event.pointerType === "touch") return;
 		if (!this.pointerDown) return;
 		const p = this.eventToPixel(event);
 
@@ -868,6 +871,7 @@ class PdfOverlayController {
 	}
 
 	private onPointerUp(event: PointerEvent) {
+		if (event.pointerType === "touch") return;
 		if (!this.pointerDown) return;
 		this.pointerDown = false;
 		this.overlayEl.releasePointerCapture(event.pointerId);
