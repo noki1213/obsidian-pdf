@@ -60,5 +60,23 @@ ObsidianでPDFに手書きできるプラグインを作る。必要な機能は
 	- URL: `https://github.com/noki1213/obsidian-pdf/releases/tag/v0.1.0`
 
 ### 確認項目とフィードバック
-1. GitHub リポジトリの所有者が `noki1213` で問題ないか →  
-2. Release `v0.1.0` の説明文とタグ名で問題ないか →  
+1. GitHub リポジトリの所有者が `noki1213` で問題ないか → 進行中（ユーザーから継続依頼あり）  
+2. Release `v0.1.0` の説明文とタグ名で問題ないか → NG（manifest.json が見当たらずインストール不可との報告）  
+
+## 実装03
+- Date: `2026-04-23 18:19:18`
+- Model: `gpt-5.3-codex`
+
+### 実装内容
+リリース配布形式をユーザー報告に合わせて修正した。
+
+- 原因確認
+	- `v0.1.0` release に assets が存在せず、インストール用の `manifest.json` / `main.js` / `styles.css` を取得できない状態だった
+- 修正対応
+	- `v0.1.0` に `manifest.json` / `main.js` / `styles.css` をアップロード
+	- その後、ユーザー提示の参考プラグイン `obsidian-quick-tab-palette` の配布形式に合わせ、zip資産は削除
+	- 最終状態を確認し、release assets は3ファイル構成に統一
+
+### 確認項目とフィードバック
+1. `v0.1.0` から `manifest.json` / `main.js` / `styles.css` を取得できるか →  
+2. その3ファイルで Obsidian へ手動インストールできるか →  
