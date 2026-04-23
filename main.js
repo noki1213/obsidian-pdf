@@ -19816,6 +19816,8 @@ var PdfOverlayController = class {
     this.redrawQueued = false;
     this.isApplying = false;
     this.isDirty = false;
+    this.scrollContainer = null;
+    this.scrollContainerOverflow = "";
     this.plugin = options.plugin;
     this.file = options.file;
     this.viewerEl = options.viewerEl;
@@ -19850,6 +19852,15 @@ var PdfOverlayController = class {
     for (const pageEl of Array.from(this.viewerEl.querySelectorAll(".page"))) {
       this.pageResizeObserver.observe(pageEl);
     }
+    let scanEl = this.viewerEl.parentElement;
+    while (scanEl) {
+      const ov = getComputedStyle(scanEl).overflow;
+      if (ov.includes("auto") || ov.includes("scroll")) {
+        this.scrollContainer = scanEl;
+        break;
+      }
+      scanEl = scanEl.parentElement;
+    }
     this.bindPointerEvents();
     this.render();
   }
@@ -19860,6 +19871,7 @@ var PdfOverlayController = class {
     if (this.isDirty) {
       void this.applyToPdf(true);
     }
+    this.unlockScroll();
     this.viewerEl.classList.remove("pdf-ink-active");
     this.resizeObserver.disconnect();
     this.pageResizeObserver.disconnect();
@@ -20234,6 +20246,15 @@ var PdfOverlayController = class {
     this.lassoMenuEl.style.top = `${topY}px`;
     this.lassoMenuEl.classList.remove("is-hidden");
   }
+  lockScroll() {
+    if (!this.scrollContainer) return;
+    this.scrollContainerOverflow = this.scrollContainer.style.overflow;
+    this.scrollContainer.style.overflow = "hidden";
+  }
+  unlockScroll() {
+    if (!this.scrollContainer) return;
+    this.scrollContainer.style.overflow = this.scrollContainerOverflow;
+  }
   bindPointerEvents() {
     this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event), { passive: false });
     this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
@@ -20247,6 +20268,7 @@ var PdfOverlayController = class {
     event.stopPropagation();
     this.overlayEl.setPointerCapture(event.pointerId);
     this.pointerDown = true;
+    this.lockScroll();
     const p = this.eventToPixel(event);
     this.previousPointer = p;
     if (this.activeTool === "pen" || this.activeTool === "marker") {
@@ -20327,6 +20349,7 @@ var PdfOverlayController = class {
     if (!this.pointerDown) return;
     this.pointerDown = false;
     this.overlayEl.releasePointerCapture(event.pointerId);
+    this.unlockScroll();
     if (this.drawingStroke) {
       if (this.drawingStroke.points.length > 1) {
         this.state.items.push(this.drawingStroke);
