@@ -7,8 +7,8 @@
 	touch-action: pan-x pan-y pinch-zoom;
 }
 
-/* プラグイン起動中はPDF.jsのInk注釈レンダリングを非表示にして二重描画を防ぐ */
-.pdf-ink-active .annotationLayer .inkAnnotation {
+/* プラグイン起動中はPDF.jsのアノテーション層を非表示にして二重描画を防ぐ */
+.pdf-ink-active .annotationLayer {
 	display: none !important;
 }
 
