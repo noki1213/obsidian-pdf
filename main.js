@@ -19815,7 +19815,7 @@ var PdfOverlayController = class {
     this.copiedSelection = [];
     this.redrawQueued = false;
     this.isApplying = false;
-    this.autoSaveTimer = null;
+    this.isDirty = false;
     this.plugin = options.plugin;
     this.file = options.file;
     this.viewerEl = options.viewerEl;
@@ -19853,9 +19853,8 @@ var PdfOverlayController = class {
     return this.file.path === path && this.viewerEl === viewerEl && this.toolbarEl === toolbarEl;
   }
   destroy() {
-    if (this.autoSaveTimer !== null) {
-      window.clearTimeout(this.autoSaveTimer);
-      this.autoSaveTimer = null;
+    if (this.isDirty) {
+      void this.applyToPdf(true);
     }
     this.viewerEl.classList.remove("pdf-ink-active");
     this.resizeObserver.disconnect();
@@ -19869,7 +19868,7 @@ var PdfOverlayController = class {
     this.future.push(deepCloneState(this.state));
     this.state = deepCloneState(prev);
     this.plugin.updateFileState(this.file.path, this.state);
-    this.scheduleAutoSave();
+    this.isDirty = true;
     this.render();
   }
   redo() {
@@ -19878,7 +19877,7 @@ var PdfOverlayController = class {
     this.past.push(deepCloneState(this.state));
     this.state = deepCloneState(next);
     this.plugin.updateFileState(this.file.path, this.state);
-    this.scheduleAutoSave();
+    this.isDirty = true;
     this.render();
   }
   async applyToPdf(silent = false) {
@@ -19910,6 +19909,7 @@ var PdfOverlayController = class {
       const bytes = await pdfDoc.save();
       const output = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
       await this.plugin.app.vault.modifyBinary(this.file, output);
+      this.isDirty = false;
       if (!silent) {
         new import_obsidian.Notice(skippedImageCount > 0 ? `Saved. ${skippedImageCount} image overlay(s) are not saved to PDF yet.` : "Saved.");
       }
@@ -19920,15 +19920,6 @@ var PdfOverlayController = class {
       this.isApplying = false;
       this.plugin.isApplyingToPdf = false;
     }
-  }
-  scheduleAutoSave() {
-    if (this.autoSaveTimer !== null) {
-      window.clearTimeout(this.autoSaveTimer);
-    }
-    this.autoSaveTimer = window.setTimeout(() => {
-      this.autoSaveTimer = null;
-      void this.applyToPdf(true);
-    }, 4e3);
   }
   applyStrokeToPdf(item, pageMetrics, pages, pdfDoc) {
     const pointsPx = item.points.map((point) => this.normToPixel(point));
@@ -20237,15 +20228,16 @@ var PdfOverlayController = class {
     this.lassoMenuEl.classList.remove("is-hidden");
   }
   bindPointerEvents() {
-    this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event));
-    this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event));
-    this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event));
-    this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event));
+    this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event), { passive: false });
+    this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
+    this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event), { passive: false });
+    this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
   }
   onPointerDown(event) {
     if (event.pointerType === "touch") return;
     if (event.button !== 0) return;
     event.preventDefault();
+    event.stopPropagation();
     this.overlayEl.setPointerCapture(event.pointerId);
     this.pointerDown = true;
     const p = this.eventToPixel(event);
@@ -20299,6 +20291,8 @@ var PdfOverlayController = class {
   onPointerMove(event) {
     if (event.pointerType === "touch") return;
     if (!this.pointerDown) return;
+    event.preventDefault();
+    event.stopPropagation();
     const p = this.eventToPixel(event);
     if (this.drawingStroke) {
       this.drawingStroke.points.push(this.pixelToNorm(p));
@@ -20359,7 +20353,7 @@ var PdfOverlayController = class {
       }
       this.future = [];
       this.plugin.updateFileState(this.file.path, this.state);
-      this.scheduleAutoSave();
+      this.isDirty = true;
     }
     this.mutationSnapshot = null;
   }

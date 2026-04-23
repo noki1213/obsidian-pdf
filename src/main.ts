@@ -278,7 +278,7 @@ class PdfOverlayController {
 	private copiedSelection: AnnotationItem[] = [];
 	private redrawQueued = false;
 	private isApplying = false;
-	private autoSaveTimer: number | null = null;
+	private isDirty = false;
 
 	constructor(options: ControllerOptions) {
 		this.plugin = options.plugin;
@@ -329,9 +329,9 @@ class PdfOverlayController {
 	}
 
 	destroy() {
-		if (this.autoSaveTimer !== null) {
-			window.clearTimeout(this.autoSaveTimer);
-			this.autoSaveTimer = null;
+		// 未保存の変更があればPDFから離れるタイミングで保存する（描画中に保存しないため）
+		if (this.isDirty) {
+			void this.applyToPdf(true);
 		}
 		this.viewerEl.classList.remove("pdf-ink-active");
 		this.resizeObserver.disconnect();
@@ -346,7 +346,7 @@ class PdfOverlayController {
 		this.future.push(deepCloneState(this.state));
 		this.state = deepCloneState(prev);
 		this.plugin.updateFileState(this.file.path, this.state);
-		this.scheduleAutoSave();
+		this.isDirty = true;
 		this.render();
 	}
 
@@ -356,7 +356,7 @@ class PdfOverlayController {
 		this.past.push(deepCloneState(this.state));
 		this.state = deepCloneState(next);
 		this.plugin.updateFileState(this.file.path, this.state);
-		this.scheduleAutoSave();
+		this.isDirty = true;
 		this.render();
 	}
 
@@ -393,6 +393,7 @@ class PdfOverlayController {
 			const bytes = await pdfDoc.save();
 			const output = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 			await this.plugin.app.vault.modifyBinary(this.file, output);
+			this.isDirty = false;
 			if (!silent) {
 				new Notice(skippedImageCount > 0
 					? `Saved. ${skippedImageCount} image overlay(s) are not saved to PDF yet.`
@@ -405,16 +406,6 @@ class PdfOverlayController {
 			this.isApplying = false;
 			this.plugin.isApplyingToPdf = false;
 		}
-	}
-
-	private scheduleAutoSave() {
-		if (this.autoSaveTimer !== null) {
-			window.clearTimeout(this.autoSaveTimer);
-		}
-		this.autoSaveTimer = window.setTimeout(() => {
-			this.autoSaveTimer = null;
-			void this.applyToPdf(true);
-		}, 4000);
 	}
 
 	private applyStrokeToPdf(
@@ -773,17 +764,20 @@ class PdfOverlayController {
 	}
 
 	private bindPointerEvents() {
-		this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event));
-		this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event));
-		this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event));
-		this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event));
+		// passive: false を明示して preventDefault() が確実に効くようにする
+		this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event), { passive: false });
+		this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
+		this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event), { passive: false });
+		this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
 	}
 
 	private onPointerDown(event: PointerEvent) {
 		// 指タッチはPDFのスクロールに使う。Apple Pencil（pen）とマウス（mouse）だけ描画する
 		if (event.pointerType === "touch") return;
 		if (event.button !== 0) return;
+		// stopPropagation でObsidianのPDFビューア自身のスクロールハンドラへの伝播を止める
 		event.preventDefault();
+		event.stopPropagation();
 		this.overlayEl.setPointerCapture(event.pointerId);
 		this.pointerDown = true;
 
@@ -843,6 +837,8 @@ class PdfOverlayController {
 	private onPointerMove(event: PointerEvent) {
 		if (event.pointerType === "touch") return;
 		if (!this.pointerDown) return;
+		event.preventDefault();
+		event.stopPropagation();
 		const p = this.eventToPixel(event);
 
 		if (this.drawingStroke) {
@@ -912,7 +908,7 @@ class PdfOverlayController {
 			}
 			this.future = [];
 			this.plugin.updateFileState(this.file.path, this.state);
-			this.scheduleAutoSave();
+			this.isDirty = true;
 		}
 		this.mutationSnapshot = null;
 	}
