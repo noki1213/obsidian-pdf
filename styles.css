@@ -2,10 +2,9 @@
 	position: absolute;
 	inset: 0;
 	z-index: 200;
-	pointer-events: auto;
-	/* 指のスクロール・ピンチズームは許可し、ペン（Apple Pencil）だけ描画に使う */
-	/* ペンのスクロールは viewerEl 側の touch-action: none で止める（JSで制御） */
-	touch-action: pan-x pan-y pinch-zoom;
+	/* pointer-events: none にして指タッチをPDF.jsに素通りさせる（ネイティブスクロール/ピンチズーム） */
+	/* ペン（Apple Pencil）のイベントはviewerElのキャプチャリスナーで受け取る */
+	pointer-events: none;
 }
 
 /* プラグイン起動中はPDF.jsのアノテーション層を非表示にして二重描画を防ぐ */
