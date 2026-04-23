@@ -19817,6 +19817,7 @@ var PdfOverlayController = class {
     this.isApplying = false;
     this.isDirty = false;
     this.touchScrollTracker = /* @__PURE__ */ new Map();
+    this.savedViewerTouchAction = "";
     this.plugin = options.plugin;
     this.file = options.file;
     this.viewerEl = options.viewerEl;
@@ -19826,6 +19827,8 @@ var PdfOverlayController = class {
       this.viewerEl.style.position = "relative";
     }
     this.viewerEl.classList.add("pdf-ink-active");
+    this.savedViewerTouchAction = this.viewerEl.style.touchAction;
+    this.viewerEl.style.touchAction = "none";
     this.overlayEl = createDiv({ cls: "pdf-ink-overlay" });
     this.drawCanvas = createEl("canvas", { cls: "pdf-ink-overlay-canvas" });
     this.helperCanvas = createEl("canvas", { cls: "pdf-ink-overlay-canvas" });
@@ -19862,6 +19865,7 @@ var PdfOverlayController = class {
       void this.applyToPdf(true);
     }
     this.viewerEl.classList.remove("pdf-ink-active");
+    this.viewerEl.style.touchAction = this.savedViewerTouchAction;
     this.resizeObserver.disconnect();
     this.pageResizeObserver.disconnect();
     this.overlayEl.remove();

@@ -281,6 +281,7 @@ class PdfOverlayController {
 	private isDirty = false;
 	private touchScrollTracker = new Map<number, Point>();
 	private pageResizeObserver!: ResizeObserver;
+	private savedViewerTouchAction = "";
 
 	constructor(options: ControllerOptions) {
 		this.plugin = options.plugin;
@@ -294,6 +295,10 @@ class PdfOverlayController {
 		}
 		// PDF.jsがInk注釈を独自レンダリングするとキャンバスと二重になるのを防ぐ
 		this.viewerEl.classList.add("pdf-ink-active");
+		// viewerEl に touch-action: none をセットしてApple Pencilのスクロールを止める
+		// （オーバーレイ側は pan-x pan-y のままにしてペンイベントが届くようにする）
+		this.savedViewerTouchAction = this.viewerEl.style.touchAction;
+		this.viewerEl.style.touchAction = "none";
 
 		this.overlayEl = createDiv({ cls: "pdf-ink-overlay" });
 		this.drawCanvas = createEl("canvas", { cls: "pdf-ink-overlay-canvas" });
@@ -342,6 +347,7 @@ class PdfOverlayController {
 			void this.applyToPdf(true);
 		}
 		this.viewerEl.classList.remove("pdf-ink-active");
+		this.viewerEl.style.touchAction = this.savedViewerTouchAction;
 		this.resizeObserver.disconnect();
 		this.pageResizeObserver.disconnect();
 		this.overlayEl.remove();
