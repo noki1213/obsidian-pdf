@@ -306,3 +306,30 @@ Apple Pencil の `pointerdown` イベント自体が発火しなくなる（WebK
 2. Apple Pencilで描いても画面がスクロールされないか →
 3. 指でPDFをスクロールできるか（モメンタムなし、基本スクロールのみ）→
 4. ズームしたとき線がページについてくるか →
+
+## 実装12
+- Date: `2026-04-23 23:30:00`
+- Model: `Claude-Sonnet-4.6`
+
+### 実装内容
+v0.2.1 のユーザー確認待ち中に、並行して「描画中だけスクロールをロックする」アプローチを実装した（v0.2.2）。
+
+背景：
+- v0.1.8〜v0.2.1 の各アプローチ（touch-action: none / pointer-events: none + capture / viewerElへのtouch-action注入）はいずれも Apple Pencil が全く描けなくなるか、pen/touch 判定が壊れるという結果だった
+- v0.2.1 はv0.1.7のイベント構成に完全に戻したが、ユーザーから「今の状態でもApple Pencilはむり」という報告があった
+- 「描いているときだけスクロールをロックする」という全く別のアプローチを試すことにした
+
+実装内容：
+- `scrollContainer` フィールド：viewerEl の祖先DOM要素を上方向に走査し、`getComputedStyle().overflow` が "auto" または "scroll" を含む最初の要素を見つけて保持する
+- `scrollContainerOverflow` フィールド：ロック前の overflow 値を保持する
+- `lockScroll()` メソッド：`scrollContainer.style.overflow = "hidden"` にしてスクロールを止める
+- `unlockScroll()` メソッド：保存しておいた overflow 値を復元する
+- `onPointerDown` で pen/mouse の描画開始直後に `lockScroll()` を呼ぶ
+- `onPointerUp` でペンを離した直後に `unlockScroll()` を呼ぶ
+- `destroy()` でも `unlockScroll()` を呼ぶ（ページ離脱時に overflow が hidden のままにならないよう）
+- バージョン 0.2.2 に更新
+
+### 確認項目とフィードバック
+1. Apple Pencilで普通に描けるか（描画時に画面が動かないか）→
+2. 指でのスクロールは普通にできるか →
+3. ペンを離したあと指スクロールが正常に戻るか →
