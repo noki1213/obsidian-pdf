@@ -608,10 +608,8 @@ class PdfOverlayController {
 		};
 
 		makeButton("Copy", () => this.copySelection());
-		makeButton("Paste", () => this.pasteSelection());
 		makeButton("Duplicate", () => this.duplicateSelection());
 		makeButton("Delete", () => this.deleteSelection());
-		makeButton("Style", () => this.styleSelectionWithActivePreset());
 		makeButton("Screenshot", () => {
 			void this.exportSelectionToPng();
 		});
