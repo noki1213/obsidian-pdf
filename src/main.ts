@@ -279,9 +279,12 @@ class PdfOverlayController {
 	private redrawQueued = false;
 	private isApplying = false;
 	private isDirty = false;
-	private touchScrollTracker = new Map<number, Point>();
 	private pageResizeObserver!: ResizeObserver;
-	private savedViewerTouchAction = "";
+
+	// イベントリスナーをdestroy時に確実に外せるよう参照を保持
+	private readonly onPointerDownBound = (e: PointerEvent) => this.onPointerDown(e);
+	private readonly onPointerMoveBound = (e: PointerEvent) => this.onPointerMove(e);
+	private readonly onPointerUpBound = (e: PointerEvent) => this.onPointerUp(e);
 
 	constructor(options: ControllerOptions) {
 		this.plugin = options.plugin;
@@ -295,10 +298,6 @@ class PdfOverlayController {
 		}
 		// PDF.jsがInk注釈を独自レンダリングするとキャンバスと二重になるのを防ぐ
 		this.viewerEl.classList.add("pdf-ink-active");
-		// viewerEl に touch-action: none をセットしてApple Pencilのスクロールを止める
-		// （オーバーレイ側は pan-x pan-y のままにしてペンイベントが届くようにする）
-		this.savedViewerTouchAction = this.viewerEl.style.touchAction;
-		this.viewerEl.style.touchAction = "none";
 
 		this.overlayEl = createDiv({ cls: "pdf-ink-overlay" });
 		this.drawCanvas = createEl("canvas", { cls: "pdf-ink-overlay-canvas" });
@@ -327,7 +326,7 @@ class PdfOverlayController {
 		this.resizeObserver = new ResizeObserver(() => this.render());
 		this.resizeObserver.observe(this.viewerEl);
 
-		// ズームでページ要素がリサイズされたときも再描画する
+		// ズーム時にページ要素がリサイズされたときも再描画する
 		this.pageResizeObserver = new ResizeObserver(() => this.render());
 		for (const pageEl of Array.from(this.viewerEl.querySelectorAll<HTMLElement>(".page"))) {
 			this.pageResizeObserver.observe(pageEl);
@@ -347,9 +346,13 @@ class PdfOverlayController {
 			void this.applyToPdf(true);
 		}
 		this.viewerEl.classList.remove("pdf-ink-active");
-		this.viewerEl.style.touchAction = this.savedViewerTouchAction;
 		this.resizeObserver.disconnect();
 		this.pageResizeObserver.disconnect();
+		// viewerElに追加したキャプチャリスナーを確実に削除する
+		this.viewerEl.removeEventListener("pointerdown", this.onPointerDownBound, { capture: true });
+		this.viewerEl.removeEventListener("pointermove", this.onPointerMoveBound, { capture: true });
+		this.viewerEl.removeEventListener("pointerup", this.onPointerUpBound, { capture: true });
+		this.viewerEl.removeEventListener("pointercancel", this.onPointerUpBound, { capture: true });
 		this.overlayEl.remove();
 		this.toolbarGroup.remove();
 		this.lassoMenuEl.remove();
@@ -782,25 +785,27 @@ class PdfOverlayController {
 	}
 
 	private bindPointerEvents() {
-		// passive: false を明示して preventDefault() が確実に効くようにする
-		this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event), { passive: false });
-		this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
-		this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event), { passive: false });
-		this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
+		// キャプチャフェーズで viewerEl に登録することで:
+		// - ペン（Apple Pencil）イベントを最優先でキャッチして描画・スクロール防止
+		// - タッチイベントはスルーしてPDF.jsのネイティブスクロール/ピンチズームに任せる
+		this.viewerEl.addEventListener("pointerdown", this.onPointerDownBound, { capture: true, passive: false });
+		this.viewerEl.addEventListener("pointermove", this.onPointerMoveBound, { capture: true, passive: false });
+		this.viewerEl.addEventListener("pointerup", this.onPointerUpBound, { capture: true, passive: false });
+		this.viewerEl.addEventListener("pointercancel", this.onPointerUpBound, { capture: true, passive: false });
 	}
 
 	private onPointerDown(event: PointerEvent) {
-		if (event.pointerType === "touch") {
-			// touch-action: none のため指スクロールをJSで手動転送する
-			this.overlayEl.setPointerCapture(event.pointerId);
-			this.touchScrollTracker.set(event.pointerId, { x: event.clientX, y: event.clientY });
-			return;
-		}
-		// Apple Pencil（pen）とマウス（mouse）だけ描画する
+		// タッチはPDF.jsのネイティブスクロール/ピンチズームに任せる
+		if (event.pointerType === "touch") return;
+		// ラッソメニューへのクリックは描画に使わない
+		if (this.lassoMenuEl.contains(event.target as Node)) return;
 		if (event.button !== 0) return;
+
+		// ペン/マウスのスクロールを防ぎ、PDF.jsへの伝播も止める
 		event.preventDefault();
 		event.stopPropagation();
-		this.overlayEl.setPointerCapture(event.pointerId);
+		// ペンがオーバーレイ外に出ても追跡できるようキャプチャする
+		this.viewerEl.setPointerCapture(event.pointerId);
 		this.pointerDown = true;
 
 		const p = this.eventToPixel(event);
@@ -857,16 +862,7 @@ class PdfOverlayController {
 	}
 
 	private onPointerMove(event: PointerEvent) {
-		if (event.pointerType === "touch") {
-			const prev = this.touchScrollTracker.get(event.pointerId);
-			this.touchScrollTracker.set(event.pointerId, { x: event.clientX, y: event.clientY });
-			if (prev && this.touchScrollTracker.size === 1) {
-				// シングルタッチ: ビューアをスクロール
-				this.viewerEl.scrollLeft -= event.clientX - prev.x;
-				this.viewerEl.scrollTop -= event.clientY - prev.y;
-			}
-			return;
-		}
+		if (event.pointerType === "touch") return;
 		if (!this.pointerDown) return;
 		event.preventDefault();
 		event.stopPropagation();
@@ -898,13 +894,10 @@ class PdfOverlayController {
 	}
 
 	private onPointerUp(event: PointerEvent) {
-		if (event.pointerType === "touch") {
-			this.touchScrollTracker.delete(event.pointerId);
-			return;
-		}
+		if (event.pointerType === "touch") return;
 		if (!this.pointerDown) return;
 		this.pointerDown = false;
-		this.overlayEl.releasePointerCapture(event.pointerId);
+		this.viewerEl.releasePointerCapture(event.pointerId);
 
 		if (this.drawingStroke) {
 			if (this.drawingStroke.points.length > 1) {
