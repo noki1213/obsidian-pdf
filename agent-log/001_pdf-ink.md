@@ -40,3 +40,25 @@ ObsidianでPDFに手書きできるプラグインを作る。必要な機能は
 1. ペン/マーカー/消しゴム/投げ縄/画像挿入/Undo/Redo の操作感はイメージに近いか → 未確認（ユーザーから先にGitHubへのコミット・プッシュ・リリース作成依頼あり）  
 2. `Apply` 実行後に、Obsidian外（mac標準プレビュー等）でPDF変更が見えるか → 未確認  
 3. 投げ縄スクショ保存先とファイル名ルール（`<PDF名>-selection*.png`）は問題ないか → 未確認  
+
+## 実装02
+- Date: `2026-04-23 18:12:39`
+- Model: `gpt-5.3-codex`
+
+### 実装内容
+ユーザー依頼に従って、GitHub公開とリリース作成を実施した。
+
+- ローカルコミット
+	- Commit: `990cb42`
+	- Message: `feat: add PDF ink annotation plugin`
+	- Co-authored-by trailer を付与
+- GitHubリポジトリ
+	- 当初 `maaya/obsidian-pdf` で作成を試みたが、現在ログイン中アカウントの権限不足で作成不可
+	- ユーザー確認後、`noki1213/obsidian-pdf` を新規作成して push
+- リリース
+	- Tag: `v0.1.0`
+	- URL: `https://github.com/noki1213/obsidian-pdf/releases/tag/v0.1.0`
+
+### 確認項目とフィードバック
+1. GitHub リポジトリの所有者が `noki1213` で問題ないか →  
+2. Release `v0.1.0` の説明文とタグ名で問題ないか →  
