@@ -153,6 +153,44 @@ ObsidianでPDFに手書きできるプラグインを作る。必要な機能は
 - 画像挿入アイテムは現状まだPDF注釈としては書き戻しておらず、Save時に英語通知を表示する仕様
 
 ### 確認項目とフィードバック
-1. Save後に消しゴムで消して再Saveできるか →  
-2. ラッソメニューの Screenshot が確実に動作するか →  
-3. `0.1.2` をリリース後、更新通知が出るか →  
+1. Save後に消しゴムで消して再Saveできるか → Saveという操作自体がいらないのではという指摘あり（後述）
+2. ラッソメニューの Screenshot が確実に動作するか → NG。Delete/Duplicate/Screenshotすべてクリックしても反応しない
+3. `0.1.2` をリリース後、更新通知が出るか → 未確認
+
+## 実装07（引き継ぎ）
+- Date: `2026-04-23 22:00:00`
+- Model: `Claude-Sonnet-4.6`
+
+### 実装内容
+前セッションが途中で終了したため、以下のフィードバックを反映して実装を続行。
+
+フィードバック内容：
+- Saveボタンがいらない → 自動保存に変更してほしい（描いたら勝手にPDFに反映）
+- ラッソメニューのボタン（Delete/Duplicate/Screenshot）をクリックしても何も起きない
+- iPadで使えるようにしてほしい（主な使用端末）
+
+#### ラッソメニュー不具合の根本原因
+ラッソメニューが `overlayEl`（キャンバスを持つ描画オーバーレイ）の子要素として配置されていた。
+`overlayEl` はポインターイベントを全捕捉しており、メニューボタンのクリックが重なったキャンバス経由でオーバーレイに横取りされていた可能性がある。また iOS Safari では `stopPropagation` の動作が不安定になるケースがある。
+
+修正：ラッソメニューを `overlayEl` の外に出して `viewerEl` の直接の子として配置。これにより、メニューへのタッチが `overlayEl` のイベントハンドラに届かなくなる。
+
+#### 実装内容
+- Saveボタン廃止・自動保存に変更
+  - `buildToolbar()` から Save ボタンを削除
+  - `persistMutation()`, `undo()`, `redo()` の後に `scheduleAutoSave()` を呼ぶ
+  - `scheduleAutoSave()` は2秒のデバウンスでPDF書き込みを実行
+  - `applyToPdf()` に `silent` 引数を追加。自動保存時は成功通知を出さない
+- ラッソメニュー修正
+  - `lassoMenuEl` を `overlayEl` の子から `viewerEl` の直接子に変更
+  - これにより `overlayEl` のイベントハンドラがメニュークリックを横取りしない
+- iPad対応
+  - `.pdf-ink-overlay` に `touch-action: none` を追加（スクロール干渉を防止）
+- author修正
+  - `manifest.json`, `package.json` の author を `maaya` → `noki` に修正
+- バージョン 0.1.3 に更新
+
+### 確認項目とフィードバック
+1. ラッソのDelete/Duplicate/Screenshotが正常に動作するか →
+2. 描いたら自動でPDFに保存されるか（2秒後に反映）→
+3. iPadで描画・ラッソ操作ができるか →

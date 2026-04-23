@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-pdf-ink",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Handwriting and lasso tools for Obsidian PDF",
 	"main": "main.js",
 	"scripts": {
@@ -12,7 +12,7 @@
 		"pdf",
 		"annotation"
 	],
-	"author": "maaya",
+	"author": "noki",
 	"license": "MIT",
 	"devDependencies": {
 		"@types/node": "^22.15.20",
