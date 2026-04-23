@@ -283,6 +283,7 @@ class PdfOverlayController {
 	private redrawQueued = false;
 	private isApplying = false;
 	private isDirty = false;
+	private isViewMode = false;
 	private pageResizeObserver!: ResizeObserver;
 	private pageMutationObserver!: MutationObserver;
 	private scrollContainer: HTMLElement | null = null;
@@ -613,6 +614,15 @@ class PdfOverlayController {
 
 	private buildToolbar(): { group: HTMLElement; pendingImageEl: HTMLElement; lassoMenuEl: HTMLElement } {
 		const group = createDiv({ cls: "pdf-ink-toolbar" });
+
+		// モード切り替えボタン（ペン / 閲覧）
+		const drawModeBtn = createEl("button", { cls: "pdf-ink-action-button is-active", text: "ペン" });
+		const viewModeBtn = createEl("button", { cls: "pdf-ink-action-button", text: "閲覧" });
+		drawModeBtn.dataset.mode = "draw";
+		viewModeBtn.dataset.mode = "view";
+		drawModeBtn.onclick = () => this.setViewMode(false);
+		viewModeBtn.onclick = () => this.setViewMode(true);
+
 		const presetButtons = BRUSH_PRESETS.map((preset) => this.createPresetButton(preset));
 		const eraserButton = this.createIconButton("eraser", "eraser", "Eraser");
 		const lassoButton = this.createIconButton("lasso", "lasso-select", "Lasso");
@@ -626,6 +636,8 @@ class PdfOverlayController {
 		redoButton.onclick = () => this.redo();
 
 		group.append(
+			drawModeBtn,
+			viewModeBtn,
 			...presetButtons,
 			eraserButton,
 			lassoButton,
@@ -670,13 +682,20 @@ class PdfOverlayController {
 	}
 
 	private refreshToolbarState() {
+		// モードボタン
+		this.toolbarGroup.querySelector<HTMLButtonElement>('[data-mode="draw"]')
+			?.classList.toggle("is-active", !this.isViewMode);
+		this.toolbarGroup.querySelector<HTMLButtonElement>('[data-mode="view"]')
+			?.classList.toggle("is-active", this.isViewMode);
+
+		// ツール・プリセットボタン（閲覧モード時は選択不可のように見せる）
 		const toolButtons = this.toolbarGroup.querySelectorAll<HTMLButtonElement>(".pdf-ink-tool-button, .pdf-ink-preset-button");
 		toolButtons.forEach((button) => {
 			const tool = button.dataset.tool as Tool | undefined;
 			const preset = button.dataset.preset;
 			const isToolActive = tool === this.activeTool;
 			const isPresetActive = preset ? preset === this.selectedPresetId && isToolActive : true;
-			button.classList.toggle("is-active", isToolActive && isPresetActive);
+			button.classList.toggle("is-active", !this.isViewMode && isToolActive && isPresetActive);
 		});
 		this.pendingImageEl.textContent = this.pendingImage ? "Ready" : "";
 	}
@@ -806,6 +825,22 @@ class PdfOverlayController {
 		this.lassoMenuEl.classList.remove("is-hidden");
 	}
 
+	private setViewMode(isView: boolean) {
+		this.isViewMode = isView;
+		// 閲覧モード：オーバーレイを透過してタッチをPDF.jsに直接渡す
+		this.overlayEl.style.pointerEvents = isView ? "none" : "auto";
+		if (isView) {
+			// 描画中断・スクロールロック解除
+			this.pointerDown = false;
+			this.drawingStroke = null;
+			this.drawingPointsPixel = [];
+			this.drawingStrokePage = null;
+			this.mutationSnapshot = null;
+			this.unlockScroll();
+		}
+		this.refreshToolbarState();
+	}
+
 	private lockScroll() {
 		if (!this.scrollContainer) return;
 		this.scrollContainerOverflow = this.scrollContainer.style.overflow;
@@ -825,6 +860,8 @@ class PdfOverlayController {
 	}
 
 	private onPointerDown(event: PointerEvent) {
+		// 閲覧モードではpointer-events:noneなのでこのハンドラは呼ばれないが念のため
+		if (this.isViewMode) return;
 		if (event.pointerType === "touch") {
 			this.activeTouchPointers.add(event.pointerId);
 			if (this.activeTouchPointers.size >= 2) {
