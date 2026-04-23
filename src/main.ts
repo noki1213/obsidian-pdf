@@ -283,6 +283,7 @@ class PdfOverlayController {
 	private pageMutationObserver!: MutationObserver;
 	private scrollContainer: HTMLElement | null = null;
 	private scrollContainerOverflow = "";
+	private activeTouchPointers = new Set<number>();
 
 	constructor(options: ControllerOptions) {
 		this.plugin = options.plugin;
@@ -815,22 +816,27 @@ class PdfOverlayController {
 		this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
 		this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event), { passive: false });
 		this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
-
-		// Apple Pencil（stylus）のときだけ touchstart/touchmove でスクロールをキャンセルする
-		// touch-action: pan-x pan-y pinch-zoom のままにすることで指スクロールは維持する
-		const cancelStylusScroll = (event: TouchEvent) => {
-			const touch = event.touches[0] as (Touch & { touchType?: string }) | undefined;
-			if (touch?.touchType === "stylus") {
-				event.preventDefault();
-			}
-		};
-		this.overlayEl.addEventListener("touchstart", cancelStylusScroll, { passive: false });
-		this.overlayEl.addEventListener("touchmove", cancelStylusScroll, { passive: false });
 	}
 
 	private onPointerDown(event: PointerEvent) {
-		// 指タッチはPDFのスクロールに使う。Apple Pencil（pen）とマウス（mouse）だけ描画する
-		if (event.pointerType === "touch") return;
+		if (event.pointerType === "touch") {
+			this.activeTouchPointers.add(event.pointerId);
+			if (this.activeTouchPointers.size >= 2) {
+				// 2本指検出 → 描画を中断してネイティブスクロール・ズームに任せる
+				const ids = [...this.activeTouchPointers];
+				this.activeTouchPointers.clear();
+				if (this.pointerDown) {
+					this.pointerDown = false;
+					this.drawingStroke = null;
+					this.mutationSnapshot = null;
+					this.unlockScroll();
+				}
+				for (const id of ids) {
+					try { this.overlayEl.releasePointerCapture(id); } catch {}
+				}
+				return;
+			}
+		}
 		if (event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
@@ -892,7 +898,6 @@ class PdfOverlayController {
 	}
 
 	private onPointerMove(event: PointerEvent) {
-		if (event.pointerType === "touch") return;
 		if (!this.pointerDown) return;
 		event.preventDefault();
 		const p = this.eventToPixel(event);
@@ -923,7 +928,9 @@ class PdfOverlayController {
 	}
 
 	private onPointerUp(event: PointerEvent) {
-		if (event.pointerType === "touch") return;
+		if (event.pointerType === "touch") {
+			this.activeTouchPointers.delete(event.pointerId);
+		}
 		if (!this.pointerDown) return;
 		this.pointerDown = false;
 		this.overlayEl.releasePointerCapture(event.pointerId);

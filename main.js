@@ -19818,6 +19818,7 @@ var PdfOverlayController = class {
     this.isDirty = false;
     this.scrollContainer = null;
     this.scrollContainerOverflow = "";
+    this.activeTouchPointers = /* @__PURE__ */ new Set();
     this.plugin = options.plugin;
     this.file = options.file;
     this.viewerEl = options.viewerEl;
@@ -20268,17 +20269,28 @@ var PdfOverlayController = class {
     this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
     this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event), { passive: false });
     this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
-    const cancelStylusScroll = (event) => {
-      const touch = event.touches[0];
-      if (touch?.touchType === "stylus") {
-        event.preventDefault();
-      }
-    };
-    this.overlayEl.addEventListener("touchstart", cancelStylusScroll, { passive: false });
-    this.overlayEl.addEventListener("touchmove", cancelStylusScroll, { passive: false });
   }
   onPointerDown(event) {
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      this.activeTouchPointers.add(event.pointerId);
+      if (this.activeTouchPointers.size >= 2) {
+        const ids = [...this.activeTouchPointers];
+        this.activeTouchPointers.clear();
+        if (this.pointerDown) {
+          this.pointerDown = false;
+          this.drawingStroke = null;
+          this.mutationSnapshot = null;
+          this.unlockScroll();
+        }
+        for (const id of ids) {
+          try {
+            this.overlayEl.releasePointerCapture(id);
+          } catch {
+          }
+        }
+        return;
+      }
+    }
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -20334,7 +20346,6 @@ var PdfOverlayController = class {
     }
   }
   onPointerMove(event) {
-    if (event.pointerType === "touch") return;
     if (!this.pointerDown) return;
     event.preventDefault();
     const p = this.eventToPixel(event);
@@ -20361,7 +20372,9 @@ var PdfOverlayController = class {
     }
   }
   onPointerUp(event) {
-    if (event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      this.activeTouchPointers.delete(event.pointerId);
+    }
     if (!this.pointerDown) return;
     this.pointerDown = false;
     this.overlayEl.releasePointerCapture(event.pointerId);
