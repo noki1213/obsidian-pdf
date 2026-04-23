@@ -1,7 +1,7 @@
 {
 	"id": "pdf-ink",
 	"name": "PDF Ink",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"minAppVersion": "1.5.0",
 	"description": "Handwriting tools for Obsidian PDF",
 	"author": "noki",
