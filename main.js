@@ -19810,6 +19810,7 @@ var PdfOverlayController = class {
     this.copiedSelection = [];
     this.redrawQueued = false;
     this.isApplying = false;
+    this.autoSaveTimer = null;
     this.plugin = options.plugin;
     this.file = options.file;
     this.viewerEl = options.viewerEl;
@@ -19835,7 +19836,7 @@ var PdfOverlayController = class {
     this.pendingImageEl = pendingImageEl;
     this.lassoMenuEl = lassoMenuEl;
     this.toolbarEl.appendChild(this.toolbarGroup);
-    this.overlayEl.appendChild(this.lassoMenuEl);
+    this.viewerEl.appendChild(this.lassoMenuEl);
     this.refreshToolbarState();
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(this.viewerEl);
@@ -19846,9 +19847,14 @@ var PdfOverlayController = class {
     return this.file.path === path && this.viewerEl === viewerEl && this.toolbarEl === toolbarEl;
   }
   destroy() {
+    if (this.autoSaveTimer !== null) {
+      window.clearTimeout(this.autoSaveTimer);
+      this.autoSaveTimer = null;
+    }
     this.resizeObserver.disconnect();
     this.overlayEl.remove();
     this.toolbarGroup.remove();
+    this.lassoMenuEl.remove();
   }
   undo() {
     const prev = this.past.pop();
@@ -19856,6 +19862,7 @@ var PdfOverlayController = class {
     this.future.push(deepCloneState(this.state));
     this.state = deepCloneState(prev);
     this.plugin.updateFileState(this.file.path, this.state);
+    this.scheduleAutoSave();
     this.render();
   }
   redo() {
@@ -19864,17 +19871,18 @@ var PdfOverlayController = class {
     this.past.push(deepCloneState(this.state));
     this.state = deepCloneState(next);
     this.plugin.updateFileState(this.file.path, this.state);
+    this.scheduleAutoSave();
     this.render();
   }
-  async applyToPdf() {
+  async applyToPdf(silent = false) {
     if (this.isApplying) return;
     if (this.state.items.length === 0) {
-      new import_obsidian.Notice("Nothing to save.");
+      if (!silent) new import_obsidian.Notice("Nothing to save.");
       return;
     }
     const pageMetrics = this.getPageMetrics();
     if (pageMetrics.length === 0) {
-      new import_obsidian.Notice("Could not read PDF page layout.");
+      if (!silent) new import_obsidian.Notice("Could not read PDF page layout.");
       return;
     }
     this.isApplying = true;
@@ -19894,13 +19902,24 @@ var PdfOverlayController = class {
       const bytes = await pdfDoc.save();
       const output = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
       await this.plugin.app.vault.modifyBinary(this.file, output);
-      new import_obsidian.Notice(skippedImageCount > 0 ? `Saved. ${skippedImageCount} image overlay(s) are not saved to PDF yet.` : "Saved.");
+      if (!silent) {
+        new import_obsidian.Notice(skippedImageCount > 0 ? `Saved. ${skippedImageCount} image overlay(s) are not saved to PDF yet.` : "Saved.");
+      }
     } catch (error2) {
       const message = error2 instanceof Error ? error2.message : String(error2);
       new import_obsidian.Notice(`Save failed: ${message}`);
     } finally {
       this.isApplying = false;
     }
+  }
+  scheduleAutoSave() {
+    if (this.autoSaveTimer !== null) {
+      window.clearTimeout(this.autoSaveTimer);
+    }
+    this.autoSaveTimer = window.setTimeout(() => {
+      this.autoSaveTimer = null;
+      void this.applyToPdf(true);
+    }, 2e3);
   }
   applyStrokeToPdf(item, pageMetrics, pages, pdfDoc) {
     const pointsPx = item.points.map((point) => this.normToPixel(point));
@@ -20039,12 +20058,10 @@ var PdfOverlayController = class {
     const eraserButton = this.createIconButton("eraser", "eraser", "Eraser");
     const lassoButton = this.createIconButton("lasso", "lasso-select", "Lasso");
     const imageButton = this.createIconButton("image", "image-plus", "Image");
-    const saveButton = createEl("button", { cls: "pdf-ink-action-button", text: "Save" });
     const undoButton = createEl("button", { cls: "pdf-ink-action-button", text: "Undo" });
     const redoButton = createEl("button", { cls: "pdf-ink-action-button", text: "Redo" });
     const pendingImageEl = createSpan({ cls: "pdf-ink-pending-image" });
     const lassoMenuEl = this.createLassoMenu();
-    saveButton.onclick = () => void this.applyToPdf();
     undoButton.onclick = () => this.undo();
     redoButton.onclick = () => this.redo();
     group.append(
@@ -20052,7 +20069,6 @@ var PdfOverlayController = class {
       eraserButton,
       lassoButton,
       imageButton,
-      saveButton,
       undoButton,
       redoButton,
       pendingImageEl
@@ -20331,6 +20347,7 @@ var PdfOverlayController = class {
       }
       this.future = [];
       this.plugin.updateFileState(this.file.path, this.state);
+      this.scheduleAutoSave();
     }
     this.mutationSnapshot = null;
   }

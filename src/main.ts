@@ -271,6 +271,7 @@ class PdfOverlayController {
 	private copiedSelection: AnnotationItem[] = [];
 	private redrawQueued = false;
 	private isApplying = false;
+	private autoSaveTimer: number | null = null;
 
 	constructor(options: ControllerOptions) {
 		this.plugin = options.plugin;
@@ -303,7 +304,8 @@ class PdfOverlayController {
 		this.pendingImageEl = pendingImageEl;
 		this.lassoMenuEl = lassoMenuEl;
 		this.toolbarEl.appendChild(this.toolbarGroup);
-		this.overlayEl.appendChild(this.lassoMenuEl);
+		// overlayEl の外に置くことで、メニュークリックがオーバーレイのイベントに干渉しない
+		this.viewerEl.appendChild(this.lassoMenuEl);
 		this.refreshToolbarState();
 
 		this.resizeObserver = new ResizeObserver(() => this.render());
@@ -318,9 +320,14 @@ class PdfOverlayController {
 	}
 
 	destroy() {
+		if (this.autoSaveTimer !== null) {
+			window.clearTimeout(this.autoSaveTimer);
+			this.autoSaveTimer = null;
+		}
 		this.resizeObserver.disconnect();
 		this.overlayEl.remove();
 		this.toolbarGroup.remove();
+		this.lassoMenuEl.remove();
 	}
 
 	undo() {
@@ -329,6 +336,7 @@ class PdfOverlayController {
 		this.future.push(deepCloneState(this.state));
 		this.state = deepCloneState(prev);
 		this.plugin.updateFileState(this.file.path, this.state);
+		this.scheduleAutoSave();
 		this.render();
 	}
 
@@ -338,19 +346,20 @@ class PdfOverlayController {
 		this.past.push(deepCloneState(this.state));
 		this.state = deepCloneState(next);
 		this.plugin.updateFileState(this.file.path, this.state);
+		this.scheduleAutoSave();
 		this.render();
 	}
 
-	async applyToPdf() {
+	async applyToPdf(silent = false) {
 		if (this.isApplying) return;
 		if (this.state.items.length === 0) {
-			new Notice("Nothing to save.");
+			if (!silent) new Notice("Nothing to save.");
 			return;
 		}
 
 		const pageMetrics = this.getPageMetrics();
 		if (pageMetrics.length === 0) {
-			new Notice("Could not read PDF page layout.");
+			if (!silent) new Notice("Could not read PDF page layout.");
 			return;
 		}
 
@@ -373,15 +382,27 @@ class PdfOverlayController {
 			const bytes = await pdfDoc.save();
 			const output = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 			await this.plugin.app.vault.modifyBinary(this.file, output);
-			new Notice(skippedImageCount > 0
-				? `Saved. ${skippedImageCount} image overlay(s) are not saved to PDF yet.`
-				: "Saved.");
+			if (!silent) {
+				new Notice(skippedImageCount > 0
+					? `Saved. ${skippedImageCount} image overlay(s) are not saved to PDF yet.`
+					: "Saved.");
+			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			new Notice(`Save failed: ${message}`);
 		} finally {
 			this.isApplying = false;
 		}
+	}
+
+	private scheduleAutoSave() {
+		if (this.autoSaveTimer !== null) {
+			window.clearTimeout(this.autoSaveTimer);
+		}
+		this.autoSaveTimer = window.setTimeout(() => {
+			this.autoSaveTimer = null;
+			void this.applyToPdf(true);
+		}, 2000);
 	}
 
 	private applyStrokeToPdf(
@@ -552,13 +573,11 @@ class PdfOverlayController {
 		const eraserButton = this.createIconButton("eraser", "eraser", "Eraser");
 		const lassoButton = this.createIconButton("lasso", "lasso-select", "Lasso");
 		const imageButton = this.createIconButton("image", "image-plus", "Image");
-		const saveButton = createEl("button", { cls: "pdf-ink-action-button", text: "Save" });
 		const undoButton = createEl("button", { cls: "pdf-ink-action-button", text: "Undo" });
 		const redoButton = createEl("button", { cls: "pdf-ink-action-button", text: "Redo" });
 		const pendingImageEl = createSpan({ cls: "pdf-ink-pending-image" });
 		const lassoMenuEl = this.createLassoMenu();
 
-		saveButton.onclick = () => void this.applyToPdf();
 		undoButton.onclick = () => this.undo();
 		redoButton.onclick = () => this.redo();
 
@@ -567,7 +586,6 @@ class PdfOverlayController {
 			eraserButton,
 			lassoButton,
 			imageButton,
-			saveButton,
 			undoButton,
 			redoButton,
 			pendingImageEl
@@ -878,6 +896,7 @@ class PdfOverlayController {
 			}
 			this.future = [];
 			this.plugin.updateFileState(this.file.path, this.state);
+			this.scheduleAutoSave();
 		}
 		this.mutationSnapshot = null;
 	}
