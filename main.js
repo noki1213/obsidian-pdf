@@ -19817,6 +19817,7 @@ var PdfOverlayController = class {
     this.redrawQueued = false;
     this.isApplying = false;
     this.isDirty = false;
+    this.isViewMode = false;
     this.scrollContainer = null;
     this.scrollContainerOverflow = "";
     this.activeTouchPointers = /* @__PURE__ */ new Set();
@@ -20080,6 +20081,12 @@ var PdfOverlayController = class {
   }
   buildToolbar() {
     const group = createDiv({ cls: "pdf-ink-toolbar" });
+    const drawModeBtn = createEl("button", { cls: "pdf-ink-action-button is-active", text: "\u30DA\u30F3" });
+    const viewModeBtn = createEl("button", { cls: "pdf-ink-action-button", text: "\u95B2\u89A7" });
+    drawModeBtn.dataset.mode = "draw";
+    viewModeBtn.dataset.mode = "view";
+    drawModeBtn.onclick = () => this.setViewMode(false);
+    viewModeBtn.onclick = () => this.setViewMode(true);
     const presetButtons = BRUSH_PRESETS.map((preset) => this.createPresetButton(preset));
     const eraserButton = this.createIconButton("eraser", "eraser", "Eraser");
     const lassoButton = this.createIconButton("lasso", "lasso-select", "Lasso");
@@ -20091,6 +20098,8 @@ var PdfOverlayController = class {
     undoButton.onclick = () => this.undo();
     redoButton.onclick = () => this.redo();
     group.append(
+      drawModeBtn,
+      viewModeBtn,
       ...presetButtons,
       eraserButton,
       lassoButton,
@@ -20131,13 +20140,15 @@ var PdfOverlayController = class {
     return button;
   }
   refreshToolbarState() {
+    this.toolbarGroup.querySelector('[data-mode="draw"]')?.classList.toggle("is-active", !this.isViewMode);
+    this.toolbarGroup.querySelector('[data-mode="view"]')?.classList.toggle("is-active", this.isViewMode);
     const toolButtons = this.toolbarGroup.querySelectorAll(".pdf-ink-tool-button, .pdf-ink-preset-button");
     toolButtons.forEach((button) => {
       const tool = button.dataset.tool;
       const preset = button.dataset.preset;
       const isToolActive = tool === this.activeTool;
       const isPresetActive = preset ? preset === this.selectedPresetId && isToolActive : true;
-      button.classList.toggle("is-active", isToolActive && isPresetActive);
+      button.classList.toggle("is-active", !this.isViewMode && isToolActive && isPresetActive);
     });
     this.pendingImageEl.textContent = this.pendingImage ? "Ready" : "";
   }
@@ -20255,6 +20266,19 @@ var PdfOverlayController = class {
     this.lassoMenuEl.style.top = `${topY}px`;
     this.lassoMenuEl.classList.remove("is-hidden");
   }
+  setViewMode(isView) {
+    this.isViewMode = isView;
+    this.overlayEl.style.pointerEvents = isView ? "none" : "auto";
+    if (isView) {
+      this.pointerDown = false;
+      this.drawingStroke = null;
+      this.drawingPointsPixel = [];
+      this.drawingStrokePage = null;
+      this.mutationSnapshot = null;
+      this.unlockScroll();
+    }
+    this.refreshToolbarState();
+  }
   lockScroll() {
     if (!this.scrollContainer) return;
     this.scrollContainerOverflow = this.scrollContainer.style.overflow;
@@ -20271,6 +20295,7 @@ var PdfOverlayController = class {
     this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
   }
   onPointerDown(event) {
+    if (this.isViewMode) return;
     if (event.pointerType === "touch") {
       this.activeTouchPointers.add(event.pointerId);
       if (this.activeTouchPointers.size >= 2) {
