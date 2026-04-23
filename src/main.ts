@@ -280,6 +280,8 @@ class PdfOverlayController {
 	private isApplying = false;
 	private isDirty = false;
 	private pageResizeObserver!: ResizeObserver;
+	private scrollContainer: HTMLElement | null = null;
+	private scrollContainerOverflow = "";
 
 	constructor(options: ControllerOptions) {
 		this.plugin = options.plugin;
@@ -327,6 +329,17 @@ class PdfOverlayController {
 			this.pageResizeObserver.observe(pageEl);
 		}
 
+		// Apple Pencil描画中にスクロールを止めるためのコンテナを探す
+		let scanEl: HTMLElement | null = this.viewerEl.parentElement;
+		while (scanEl) {
+			const ov = getComputedStyle(scanEl).overflow;
+			if (ov.includes("auto") || ov.includes("scroll")) {
+				this.scrollContainer = scanEl;
+				break;
+			}
+			scanEl = scanEl.parentElement;
+		}
+
 		this.bindPointerEvents();
 		this.render();
 	}
@@ -340,6 +353,7 @@ class PdfOverlayController {
 		if (this.isDirty) {
 			void this.applyToPdf(true);
 		}
+		this.unlockScroll();
 		this.viewerEl.classList.remove("pdf-ink-active");
 		this.resizeObserver.disconnect();
 		this.pageResizeObserver.disconnect();
@@ -774,6 +788,17 @@ class PdfOverlayController {
 		this.lassoMenuEl.classList.remove("is-hidden");
 	}
 
+	private lockScroll() {
+		if (!this.scrollContainer) return;
+		this.scrollContainerOverflow = this.scrollContainer.style.overflow;
+		this.scrollContainer.style.overflow = "hidden";
+	}
+
+	private unlockScroll() {
+		if (!this.scrollContainer) return;
+		this.scrollContainer.style.overflow = this.scrollContainerOverflow;
+	}
+
 	private bindPointerEvents() {
 		this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event), { passive: false });
 		this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
@@ -789,6 +814,7 @@ class PdfOverlayController {
 		event.stopPropagation();
 		this.overlayEl.setPointerCapture(event.pointerId);
 		this.pointerDown = true;
+		this.lockScroll();
 
 		const p = this.eventToPixel(event);
 		this.previousPointer = p;
@@ -879,6 +905,7 @@ class PdfOverlayController {
 		if (!this.pointerDown) return;
 		this.pointerDown = false;
 		this.overlayEl.releasePointerCapture(event.pointerId);
+		this.unlockScroll();
 
 		if (this.drawingStroke) {
 			if (this.drawingStroke.points.length > 1) {
