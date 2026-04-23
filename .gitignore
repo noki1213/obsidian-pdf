@@ -2,3 +2,4 @@
 agent.md
 .github/copilot-instructions.md
 .DS_Store
+node_modules/
