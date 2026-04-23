@@ -276,6 +276,33 @@ iOSでは `touch-action` が pen/stylus 入力にも効くため、JavaScriptの
 - バージョン 0.1.8 に更新
 
 ### 確認項目とフィードバック
-1. Apple Pencilで描いても画面がスクロールされなくなっているか →
-2. 指でPDFをスクロールできるか（モメンタムなし、基本スクロールのみ対応）→
-3. ズームしたとき線がページについてくるか →
+1. Apple Pencilで描いても画面がスクロールされなくなっているか → NG（描画も完全にできなくなった）
+2. 指でPDFをスクロールできるか → NG（スクロールも動かない）
+
+## 実装11
+- Date: `2026-04-23 22:50:00`
+- Model: `Claude-Sonnet-4.6`
+
+### 実装内容
+v0.1.8 のリグレッション（Apple Pencil が全く描けなくなった）を修正。
+
+根本原因：
+オーバーレイ要素自体に `touch-action: none` を設定すると、iOS/iPadOS WebKit では
+Apple Pencil の `pointerdown` イベント自体が発火しなくなる（WebKit の挙動）。
+イベントが届かないため描画が全く動かなくなっていた。
+
+修正方針：
+- CSS ではオーバーレイを `touch-action: pan-x pan-y pinch-zoom` に戻す（v0.1.7 と同じ）
+  → Apple Pencil のイベントが届き、描画できる
+- JS で `viewerEl`（スクロールコンテナの親要素）に `touch-action: none` をセット
+  → CSS の touch-action は子から親まで「狭い方優先」で交差する仕様なので、
+    viewerEl が `none` ならオーバーレイも実質 `none` になりApple Pencilのスクロールが止まる
+- コントローラー破棄時に `viewerEl.style.touchAction` を元の値に戻す
+- 手動タッチスクロール（v0.1.8から引き継ぎ）、pageResizeObserver、getPageMetrics修正はそのまま保持
+- バージョン 0.1.9 に更新
+
+### 確認項目とフィードバック
+1. Apple Pencilで描けるか →
+2. Apple Pencilで描いても画面がスクロールされないか →
+3. 指でPDFをスクロールできるか（モメンタムなし、基本スクロールのみ）→
+4. ズームしたとき線がページについてくるか →
