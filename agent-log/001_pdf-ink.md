@@ -218,3 +218,24 @@ ObsidianでPDFに手書きできるプラグインを作る。必要な機能は
 ### 確認項目とフィードバック
 1. 他のファイルを見に行って戻ってきたときに二重線が出なくなっているか →
 2. MacプレビューでInk注釈が正常に表示されるか →
+
+## 実装09
+- Date: `2026-04-23 20:05:15`
+- Model: `Claude-Sonnet-4.6`
+
+### 実装内容
+iPadでApple Pencilが使えない（描かずにページが動く）問題を修正した。
+
+原因：オーバーレイが全てのタッチ入力を拾っていて、指もApple Pencilも同じ扱いだった。
+
+修正内容：
+- `onPointerDown` / `onPointerMove` / `onPointerUp` に `if (event.pointerType === "touch") return;` を追加
+  → 指（touch）は描画ハンドラを素通り → PDF が普通にスクロール・ピンチズームできる
+  → Apple Pencil（pen）とマウス（mouse）だけが描画をトリガーする
+- CSS `touch-action: none` → `touch-action: pan-x pan-y pinch-zoom` に変更
+  → 指によるスクロール・ズームをOSレベルでも許可
+- バージョン 0.1.6 に更新
+
+### 確認項目とフィードバック
+1. 指でPDFをスクロール・ピンチズームできるか →
+2. Apple Pencilで描画できるか →
