@@ -1,9 +1,14 @@
 .pdf-ink-overlay {
 	position: absolute;
 	inset: 0;
-	z-index: 35;
+	z-index: 200;
 	pointer-events: auto;
 	touch-action: none;
+}
+
+/* プラグイン起動中はPDF.jsのInk注釈レンダリングを非表示にして二重描画を防ぐ */
+.pdf-ink-active .annotationLayer .inkAnnotation {
+	display: none !important;
 }
 
 .pdf-ink-overlay-canvas {

@@ -290,6 +290,8 @@ class PdfOverlayController {
 		if (!this.viewerEl.style.position) {
 			this.viewerEl.style.position = "relative";
 		}
+		// PDF.jsがInk注釈を独自レンダリングするとキャンバスと二重になるのを防ぐ
+		this.viewerEl.classList.add("pdf-ink-active");
 
 		this.overlayEl = createDiv({ cls: "pdf-ink-overlay" });
 		this.drawCanvas = createEl("canvas", { cls: "pdf-ink-overlay-canvas" });
@@ -331,6 +333,7 @@ class PdfOverlayController {
 			window.clearTimeout(this.autoSaveTimer);
 			this.autoSaveTimer = null;
 		}
+		this.viewerEl.classList.remove("pdf-ink-active");
 		this.resizeObserver.disconnect();
 		this.overlayEl.remove();
 		this.toolbarGroup.remove();
