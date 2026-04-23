@@ -136,6 +136,7 @@ export default class PdfInkPlugin extends Plugin {
 	private dataStore: PluginData = EMPTY_DATA;
 	private currentController: PdfOverlayController | null = null;
 	private saveTimer: number | null = null;
+	isApplyingToPdf = false;
 
 	async onload() {
 		const loaded = await this.loadData();
@@ -223,6 +224,12 @@ export default class PdfInkPlugin extends Plugin {
 			this.currentController
 			&& this.currentController.matches(view.file.path, viewerEl, toolbarEl)
 		) {
+			return;
+		}
+
+		// PDF書き込み中はビューを再構築しない（ファイル変更検知による誤再構築防止）
+		if (this.isApplyingToPdf) {
+			window.setTimeout(() => this.attachToActivePdf(), 600);
 			return;
 		}
 
@@ -364,6 +371,7 @@ class PdfOverlayController {
 		}
 
 		this.isApplying = true;
+		this.plugin.isApplyingToPdf = true;
 		try {
 			const sourceBinary = await this.plugin.app.vault.adapter.readBinary(this.file.path);
 			const pdfDoc = await PDFDocument.load(sourceBinary);
@@ -392,6 +400,7 @@ class PdfOverlayController {
 			new Notice(`Save failed: ${message}`);
 		} finally {
 			this.isApplying = false;
+			this.plugin.isApplyingToPdf = false;
 		}
 	}
 
@@ -402,7 +411,7 @@ class PdfOverlayController {
 		this.autoSaveTimer = window.setTimeout(() => {
 			this.autoSaveTimer = null;
 			void this.applyToPdf(true);
-		}, 2000);
+		}, 4000);
 	}
 
 	private applyStrokeToPdf(

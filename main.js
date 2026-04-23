@@ -19709,6 +19709,7 @@ var PdfInkPlugin = class extends import_obsidian.Plugin {
     this.dataStore = EMPTY_DATA;
     this.currentController = null;
     this.saveTimer = null;
+    this.isApplyingToPdf = false;
   }
   async onload() {
     const loaded = await this.loadData();
@@ -19777,6 +19778,10 @@ var PdfInkPlugin = class extends import_obsidian.Plugin {
       return;
     }
     if (this.currentController && this.currentController.matches(view.file.path, viewerEl, toolbarEl)) {
+      return;
+    }
+    if (this.isApplyingToPdf) {
+      window.setTimeout(() => this.attachToActivePdf(), 600);
       return;
     }
     if (this.currentController) {
@@ -19886,6 +19891,7 @@ var PdfOverlayController = class {
       return;
     }
     this.isApplying = true;
+    this.plugin.isApplyingToPdf = true;
     try {
       const sourceBinary = await this.plugin.app.vault.adapter.readBinary(this.file.path);
       const pdfDoc = await PDFDocument_default.load(sourceBinary);
@@ -19910,6 +19916,7 @@ var PdfOverlayController = class {
       new import_obsidian.Notice(`Save failed: ${message}`);
     } finally {
       this.isApplying = false;
+      this.plugin.isApplyingToPdf = false;
     }
   }
   scheduleAutoSave() {
@@ -19919,7 +19926,7 @@ var PdfOverlayController = class {
     this.autoSaveTimer = window.setTimeout(() => {
       this.autoSaveTimer = null;
       void this.applyToPdf(true);
-    }, 2e3);
+    }, 4e3);
   }
   applyStrokeToPdf(item, pageMetrics, pages, pdfDoc) {
     const pointsPx = item.points.map((point) => this.normToPixel(point));
