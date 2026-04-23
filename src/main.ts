@@ -280,6 +280,7 @@ class PdfOverlayController {
 	private isApplying = false;
 	private isDirty = false;
 	private pageResizeObserver!: ResizeObserver;
+	private pageMutationObserver!: MutationObserver;
 	private scrollContainer: HTMLElement | null = null;
 	private scrollContainerOverflow = "";
 
@@ -329,6 +330,15 @@ class PdfOverlayController {
 			this.pageResizeObserver.observe(pageEl);
 		}
 
+		// PDF.jsがズーム時に.pageを作り直すと監視が途切れるため、追加されたページを再観測する
+		this.pageMutationObserver = new MutationObserver(() => {
+			for (const pageEl of Array.from(this.viewerEl.querySelectorAll<HTMLElement>(".page"))) {
+				this.pageResizeObserver.observe(pageEl);
+			}
+			this.render();
+		});
+		this.pageMutationObserver.observe(this.viewerEl, { childList: true });
+
 		// Apple Pencil描画中にスクロールを止めるためのコンテナを探す
 		let scanEl: HTMLElement | null = this.viewerEl.parentElement;
 		while (scanEl) {
@@ -357,6 +367,7 @@ class PdfOverlayController {
 		this.viewerEl.classList.remove("pdf-ink-active");
 		this.resizeObserver.disconnect();
 		this.pageResizeObserver.disconnect();
+		this.pageMutationObserver.disconnect();
 		this.overlayEl.remove();
 		this.toolbarGroup.remove();
 		this.lassoMenuEl.remove();
@@ -804,6 +815,17 @@ class PdfOverlayController {
 		this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
 		this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event), { passive: false });
 		this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
+
+		// Apple Pencil（stylus）のときだけ touchstart/touchmove でスクロールをキャンセルする
+		// touch-action: pan-x pan-y pinch-zoom のままにすることで指スクロールは維持する
+		const cancelStylusScroll = (event: TouchEvent) => {
+			const touch = event.touches[0] as (Touch & { touchType?: string }) | undefined;
+			if (touch?.touchType === "stylus") {
+				event.preventDefault();
+			}
+		};
+		this.overlayEl.addEventListener("touchstart", cancelStylusScroll, { passive: false });
+		this.overlayEl.addEventListener("touchmove", cancelStylusScroll, { passive: false });
 	}
 
 	private onPointerDown(event: PointerEvent) {

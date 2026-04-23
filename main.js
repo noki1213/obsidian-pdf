@@ -19852,6 +19852,13 @@ var PdfOverlayController = class {
     for (const pageEl of Array.from(this.viewerEl.querySelectorAll(".page"))) {
       this.pageResizeObserver.observe(pageEl);
     }
+    this.pageMutationObserver = new MutationObserver(() => {
+      for (const pageEl of Array.from(this.viewerEl.querySelectorAll(".page"))) {
+        this.pageResizeObserver.observe(pageEl);
+      }
+      this.render();
+    });
+    this.pageMutationObserver.observe(this.viewerEl, { childList: true });
     let scanEl = this.viewerEl.parentElement;
     while (scanEl) {
       const ov = getComputedStyle(scanEl).overflow;
@@ -19875,6 +19882,7 @@ var PdfOverlayController = class {
     this.viewerEl.classList.remove("pdf-ink-active");
     this.resizeObserver.disconnect();
     this.pageResizeObserver.disconnect();
+    this.pageMutationObserver.disconnect();
     this.overlayEl.remove();
     this.toolbarGroup.remove();
     this.lassoMenuEl.remove();
@@ -20260,6 +20268,14 @@ var PdfOverlayController = class {
     this.overlayEl.addEventListener("pointermove", (event) => this.onPointerMove(event), { passive: false });
     this.overlayEl.addEventListener("pointerup", (event) => this.onPointerUp(event), { passive: false });
     this.overlayEl.addEventListener("pointercancel", (event) => this.onPointerUp(event), { passive: false });
+    const cancelStylusScroll = (event) => {
+      const touch = event.touches[0];
+      if (touch?.touchType === "stylus") {
+        event.preventDefault();
+      }
+    };
+    this.overlayEl.addEventListener("touchstart", cancelStylusScroll, { passive: false });
+    this.overlayEl.addEventListener("touchmove", cancelStylusScroll, { passive: false });
   }
   onPointerDown(event) {
     if (event.pointerType === "touch") return;
