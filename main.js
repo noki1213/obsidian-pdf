@@ -19819,6 +19819,7 @@ var PdfOverlayController = class {
     this.scrollContainer = null;
     this.scrollContainerOverflow = "";
     this.activeTouchPointers = /* @__PURE__ */ new Set();
+    this.onWindowResize = () => this.render();
     this.plugin = options.plugin;
     this.file = options.file;
     this.viewerEl = options.viewerEl;
@@ -19859,7 +19860,9 @@ var PdfOverlayController = class {
       }
       this.render();
     });
-    this.pageMutationObserver.observe(this.viewerEl, { childList: true });
+    this.pageMutationObserver.observe(this.viewerEl, { childList: true, subtree: true });
+    this.viewerEl.addEventListener("scroll", () => this.render());
+    window.addEventListener("resize", this.onWindowResize);
     let scanEl = this.viewerEl.parentElement;
     while (scanEl) {
       const ov = getComputedStyle(scanEl).overflow;
@@ -19880,6 +19883,7 @@ var PdfOverlayController = class {
       void this.applyToPdf(true);
     }
     this.unlockScroll();
+    window.removeEventListener("resize", this.onWindowResize);
     this.viewerEl.classList.remove("pdf-ink-active");
     this.resizeObserver.disconnect();
     this.pageResizeObserver.disconnect();

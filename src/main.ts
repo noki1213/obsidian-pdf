@@ -284,6 +284,7 @@ class PdfOverlayController {
 	private scrollContainer: HTMLElement | null = null;
 	private scrollContainerOverflow = "";
 	private activeTouchPointers = new Set<number>();
+	private onWindowResize = () => this.render();
 
 	constructor(options: ControllerOptions) {
 		this.plugin = options.plugin;
@@ -332,13 +333,19 @@ class PdfOverlayController {
 		}
 
 		// PDF.jsがズーム時に.pageを作り直すと監視が途切れるため、追加されたページを再観測する
+		// subtree: true にしてネストした構造でも確実に検知する
 		this.pageMutationObserver = new MutationObserver(() => {
 			for (const pageEl of Array.from(this.viewerEl.querySelectorAll<HTMLElement>(".page"))) {
 				this.pageResizeObserver.observe(pageEl);
 			}
 			this.render();
 		});
-		this.pageMutationObserver.observe(this.viewerEl, { childList: true });
+		this.pageMutationObserver.observe(this.viewerEl, { childList: true, subtree: true });
+
+		// ズーム後にPDF.jsがスクロール位置を調整するタイミングでも再描画する
+		this.viewerEl.addEventListener("scroll", () => this.render());
+		// ブラウザレベルのズーム（ビューポートサイズ変更）にも対応する
+		window.addEventListener("resize", this.onWindowResize);
 
 		// Apple Pencil描画中にスクロールを止めるためのコンテナを探す
 		let scanEl: HTMLElement | null = this.viewerEl.parentElement;
@@ -365,6 +372,7 @@ class PdfOverlayController {
 			void this.applyToPdf(true);
 		}
 		this.unlockScroll();
+		window.removeEventListener("resize", this.onWindowResize);
 		this.viewerEl.classList.remove("pdf-ink-active");
 		this.resizeObserver.disconnect();
 		this.pageResizeObserver.disconnect();
