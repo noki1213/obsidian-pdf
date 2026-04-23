@@ -19651,6 +19651,12 @@ var PDFButton_default = PDFButton;
 
 // src/main.ts
 var EMPTY_DATA = { files: {} };
+var BRUSH_PRESETS = [
+  { id: "pen-black", mode: "pen", color: "#111111", width: 3, opacity: 1, shape: "circle" },
+  { id: "pen-cyan", mode: "pen", color: "#3da4ff", width: 3, opacity: 1, shape: "circle" },
+  { id: "pen-pink", mode: "pen", color: "#ff4fa0", width: 3, opacity: 1, shape: "circle" },
+  { id: "marker-yellow", mode: "marker", color: "#ffd84d", width: 14, opacity: 0.35, shape: "diamond" }
+];
 function deepCloneState(state) {
   return JSON.parse(JSON.stringify(state));
 }
@@ -19721,7 +19727,7 @@ var PdfInkPlugin = class extends import_obsidian.Plugin {
     });
     this.addCommand({
       id: "pdf-ink-apply",
-      name: "PDF Ink: Apply overlays to PDF file",
+      name: "PDF Ink: Save overlays to PDF file",
       callback: () => {
         void this.currentController?.applyToPdf();
       }
@@ -19788,10 +19794,7 @@ var PdfOverlayController = class {
   constructor(options) {
     this.imageCache = /* @__PURE__ */ new Map();
     this.activeTool = "pen";
-    this.penColor = "#111111";
-    this.markerColor = "#ff4fa0";
-    this.penWidth = 3;
-    this.markerWidth = 14;
+    this.selectedPresetId = "pen-black";
     this.eraserThreshold = 16;
     this.past = [];
     this.future = [];
@@ -19803,6 +19806,7 @@ var PdfOverlayController = class {
     this.drawingStroke = null;
     this.pendingImage = null;
     this.previousPointer = null;
+    this.copiedSelection = [];
     this.redrawQueued = false;
     this.isApplying = false;
     this.plugin = options.plugin;
@@ -19825,10 +19829,13 @@ var PdfOverlayController = class {
     this.helperCtx = helperCtx;
     this.overlayEl.append(this.drawCanvas, this.helperCanvas);
     this.viewerEl.appendChild(this.overlayEl);
-    const { group, pendingImageEl } = this.buildToolbar();
+    const { group, pendingImageEl, lassoMenuEl } = this.buildToolbar();
     this.toolbarGroup = group;
     this.pendingImageEl = pendingImageEl;
+    this.lassoMenuEl = lassoMenuEl;
     this.toolbarEl.appendChild(this.toolbarGroup);
+    this.overlayEl.appendChild(this.lassoMenuEl);
+    this.refreshToolbarState();
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(this.viewerEl);
     this.bindPointerEvents();
@@ -19861,12 +19868,12 @@ var PdfOverlayController = class {
   async applyToPdf() {
     if (this.isApplying) return;
     if (this.state.items.length === 0) {
-      new import_obsidian.Notice("\u9069\u7528\u3059\u308B\u624B\u66F8\u304D\u304C\u307E\u3060\u306A\u3044\u3088");
+      new import_obsidian.Notice("Nothing to save.");
       return;
     }
     const pageMetrics = this.getPageMetrics();
     if (pageMetrics.length === 0) {
-      new import_obsidian.Notice("PDF\u30DA\u30FC\u30B8\u60C5\u5831\u3092\u53D6\u5F97\u3067\u304D\u306A\u304B\u3063\u305F\u3088");
+      new import_obsidian.Notice("Could not read PDF page layout.");
       return;
     }
     this.isApplying = true;
@@ -19885,16 +19892,15 @@ var PdfOverlayController = class {
       const output = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
       await this.plugin.app.vault.modifyBinary(this.file, output);
       this.state = { items: [] };
-      this.selectionIds.clear();
-      this.lassoPolygon = [];
+      this.clearLassoSelection();
       this.past = [];
       this.future = [];
       this.plugin.updateFileState(this.file.path, this.state);
       this.render();
-      new import_obsidian.Notice("PDF\u672C\u4F53\u3078\u66F8\u304D\u8FBC\u307F\u5B8C\u4E86\u3002Finder\u3067\u3082\u898B\u3048\u308B\u72B6\u614B\u306B\u306A\u3063\u305F\u3088");
+      new import_obsidian.Notice("Saved.");
     } catch (error2) {
       const message = error2 instanceof Error ? error2.message : String(error2);
-      new import_obsidian.Notice(`PDF\u66F8\u304D\u8FBC\u307F\u3067\u30A8\u30E9\u30FC: ${message}`);
+      new import_obsidian.Notice(`Save failed: ${message}`);
     } finally {
       this.isApplying = false;
     }
@@ -20006,88 +20012,177 @@ var PdfOverlayController = class {
   }
   buildToolbar() {
     const group = createDiv({ cls: "pdf-ink-toolbar" });
-    const toolButtons = {
-      pen: this.createToolButton("pen", "Pen"),
-      marker: this.createToolButton("marker", "Marker"),
-      eraser: this.createToolButton("eraser", "Erase"),
-      lasso: this.createToolButton("lasso", "Lasso"),
-      image: this.createToolButton("image", "Image")
-    };
-    const applyButton = createEl("button", { cls: "pdf-ink-action-button", text: "Apply" });
-    applyButton.onclick = () => {
-      void this.applyToPdf();
-    };
-    const screenshotButton = createEl("button", { cls: "pdf-ink-action-button", text: "Shot" });
-    screenshotButton.onclick = () => {
-      void this.exportSelectionToPng();
-    };
+    const presetButtons = BRUSH_PRESETS.map((preset) => this.createPresetButton(preset));
+    const eraserButton = this.createIconButton("eraser", "eraser", "Eraser");
+    const lassoButton = this.createIconButton("lasso", "lasso-select", "Lasso");
+    const imageButton = this.createIconButton("image", "image-plus", "Image");
+    const saveButton = createEl("button", { cls: "pdf-ink-action-button", text: "Save" });
     const undoButton = createEl("button", { cls: "pdf-ink-action-button", text: "Undo" });
-    undoButton.onclick = () => this.undo();
     const redoButton = createEl("button", { cls: "pdf-ink-action-button", text: "Redo" });
-    redoButton.onclick = () => this.redo();
-    const colorInput = createEl("input", { cls: "pdf-ink-color" });
-    colorInput.type = "color";
-    colorInput.value = this.penColor;
-    colorInput.oninput = () => {
-      if (this.activeTool === "marker") {
-        this.markerColor = colorInput.value;
-      } else {
-        this.penColor = colorInput.value;
-      }
-    };
-    const widthRange = createEl("input", { cls: "pdf-ink-width" });
-    widthRange.type = "range";
-    widthRange.min = "1";
-    widthRange.max = "40";
-    widthRange.value = `${this.penWidth}`;
-    widthRange.oninput = () => {
-      const value = Number(widthRange.value);
-      if (this.activeTool === "marker") {
-        this.markerWidth = value;
-      } else {
-        this.penWidth = value;
-      }
-    };
     const pendingImageEl = createSpan({ cls: "pdf-ink-pending-image" });
-    const refreshToolUi = () => {
-      for (const [tool, button] of Object.entries(toolButtons)) {
-        button.classList.toggle("is-active", tool === this.activeTool);
-      }
-      colorInput.value = this.activeTool === "marker" ? this.markerColor : this.penColor;
-      widthRange.value = `${this.activeTool === "marker" ? this.markerWidth : this.penWidth}`;
-    };
-    for (const button of Object.values(toolButtons)) {
-      button.onclick = () => {
-        this.activeTool = button.dataset.tool;
-        if (this.activeTool !== "lasso") {
-          this.selectionIds.clear();
-          this.lassoPolygon = [];
-        }
-        refreshToolUi();
-        this.render();
-      };
-    }
+    const lassoMenuEl = this.createLassoMenu();
+    saveButton.onclick = () => void this.applyToPdf();
+    undoButton.onclick = () => this.undo();
+    redoButton.onclick = () => this.redo();
     group.append(
-      toolButtons.pen,
-      toolButtons.marker,
-      toolButtons.eraser,
-      toolButtons.lasso,
-      toolButtons.image,
-      colorInput,
-      widthRange,
-      applyButton,
-      screenshotButton,
+      ...presetButtons,
+      eraserButton,
+      lassoButton,
+      imageButton,
+      saveButton,
       undoButton,
       redoButton,
       pendingImageEl
     );
-    refreshToolUi();
-    return { group, pendingImageEl };
+    return { group, pendingImageEl, lassoMenuEl };
   }
-  createToolButton(tool, label) {
-    const button = createEl("button", { cls: "pdf-ink-tool-button", text: label });
-    button.dataset.tool = tool;
+  createPresetButton(preset) {
+    const button = createEl("button", { cls: "pdf-ink-preset-button", attr: { "aria-label": preset.id } });
+    button.dataset.tool = preset.mode;
+    button.dataset.preset = preset.id;
+    button.dataset.shape = preset.shape;
+    button.style.setProperty("--pdf-ink-preset-color", preset.color);
+    button.onclick = () => {
+      this.activeTool = preset.mode;
+      this.selectedPresetId = preset.id;
+      this.clearLassoSelection();
+      this.refreshToolbarState();
+      this.render();
+    };
     return button;
+  }
+  createIconButton(tool, iconName, ariaLabel) {
+    const button = createEl("button", { cls: "pdf-ink-tool-button", attr: { "aria-label": ariaLabel } });
+    button.dataset.tool = tool;
+    (0, import_obsidian.setIcon)(button, iconName);
+    button.onclick = () => {
+      this.activeTool = tool;
+      if (tool !== "lasso") {
+        this.clearLassoSelection();
+      }
+      this.refreshToolbarState();
+      this.render();
+    };
+    return button;
+  }
+  refreshToolbarState() {
+    const toolButtons = this.toolbarGroup.querySelectorAll(".pdf-ink-tool-button, .pdf-ink-preset-button");
+    toolButtons.forEach((button) => {
+      const tool = button.dataset.tool;
+      const preset = button.dataset.preset;
+      const isToolActive = tool === this.activeTool;
+      const isPresetActive = preset ? preset === this.selectedPresetId && isToolActive : true;
+      button.classList.toggle("is-active", isToolActive && isPresetActive);
+    });
+    this.pendingImageEl.textContent = this.pendingImage ? "Ready" : "";
+  }
+  createLassoMenu() {
+    const menu = createDiv({ cls: "pdf-ink-lasso-menu is-hidden" });
+    const makeButton = (text, onClick) => {
+      const button = createEl("button", { cls: "pdf-ink-lasso-menu-button", text });
+      button.onclick = onClick;
+      menu.appendChild(button);
+    };
+    makeButton("Copy", () => this.copySelection());
+    makeButton("Paste", () => this.pasteSelection());
+    makeButton("Duplicate", () => this.duplicateSelection());
+    makeButton("Delete", () => this.deleteSelection());
+    makeButton("Style", () => this.styleSelectionWithActivePreset());
+    makeButton("Screenshot", () => {
+      void this.exportSelectionToPng();
+    });
+    return menu;
+  }
+  copySelection() {
+    const selected = this.state.items.filter((item) => this.selectionIds.has(item.id));
+    this.copiedSelection = selected.map((item) => deepCloneState({ items: [item] }).items[0]);
+  }
+  pasteSelection() {
+    if (this.copiedSelection.length === 0) {
+      new import_obsidian.Notice("Nothing to paste.");
+      return;
+    }
+    this.mutationSnapshot = deepCloneState(this.state);
+    const offsetX = 0.02;
+    const offsetY = 0.02;
+    const createdIds = /* @__PURE__ */ new Set();
+    for (const item of this.copiedSelection) {
+      if (item.type === "stroke") {
+        const clone2 = {
+          ...item,
+          id: crypto.randomUUID(),
+          points: item.points.map((point) => ({ x: point.x + offsetX, y: point.y + offsetY }))
+        };
+        this.state.items.push(clone2);
+        createdIds.add(clone2.id);
+        continue;
+      }
+      const clone = {
+        ...item,
+        id: crypto.randomUUID(),
+        x: item.x + offsetX,
+        y: item.y + offsetY
+      };
+      this.state.items.push(clone);
+      createdIds.add(clone.id);
+    }
+    this.selectionIds = createdIds;
+    this.persistMutation();
+    this.render();
+  }
+  duplicateSelection() {
+    this.copySelection();
+    this.pasteSelection();
+  }
+  deleteSelection() {
+    if (this.selectionIds.size === 0) {
+      return;
+    }
+    this.mutationSnapshot = deepCloneState(this.state);
+    this.state.items = this.state.items.filter((item) => !this.selectionIds.has(item.id));
+    this.clearLassoSelection();
+    this.persistMutation();
+    this.render();
+  }
+  styleSelectionWithActivePreset() {
+    const preset = BRUSH_PRESETS.find((item) => item.id === this.selectedPresetId);
+    if (!preset) return;
+    this.mutationSnapshot = deepCloneState(this.state);
+    let changed = false;
+    for (const item of this.state.items) {
+      if (!this.selectionIds.has(item.id) || item.type !== "stroke") continue;
+      item.mode = preset.mode;
+      item.color = preset.color;
+      item.width = preset.width;
+      item.opacity = preset.opacity;
+      changed = true;
+    }
+    if (changed) {
+      this.persistMutation();
+      this.render();
+    }
+  }
+  clearLassoSelection() {
+    this.selectionIds.clear();
+    this.lassoPolygon = [];
+    this.updateLassoMenuPosition();
+  }
+  updateLassoMenuPosition() {
+    if (this.selectionIds.size === 0) {
+      this.lassoMenuEl.classList.add("is-hidden");
+      return;
+    }
+    const selected = this.state.items.filter((item) => this.selectionIds.has(item.id));
+    const bounds = this.getSelectionBoundsInPixels(selected);
+    if (!bounds) {
+      this.lassoMenuEl.classList.add("is-hidden");
+      return;
+    }
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const topY = Math.max(8, bounds.minY - 52);
+    this.lassoMenuEl.style.left = `${centerX}px`;
+    this.lassoMenuEl.style.top = `${topY}px`;
+    this.lassoMenuEl.classList.remove("is-hidden");
   }
   bindPointerEvents() {
     this.overlayEl.addEventListener("pointerdown", (event) => this.onPointerDown(event));
@@ -20103,15 +20198,15 @@ var PdfOverlayController = class {
     const p = this.eventToPixel(event);
     this.previousPointer = p;
     if (this.activeTool === "pen" || this.activeTool === "marker") {
-      const mode = this.activeTool;
+      const preset = BRUSH_PRESETS.find((item) => item.id === this.selectedPresetId) ?? BRUSH_PRESETS[0];
       this.mutationSnapshot = deepCloneState(this.state);
       this.drawingStroke = {
         id: crypto.randomUUID(),
         type: "stroke",
-        mode,
-        color: mode === "marker" ? this.markerColor : this.penColor,
-        width: mode === "marker" ? this.markerWidth : this.penWidth,
-        opacity: mode === "marker" ? 0.35 : 1,
+        mode: preset.mode,
+        color: preset.color,
+        width: preset.width,
+        opacity: preset.opacity,
         points: [this.pixelToNorm(p)]
       };
       this.render();
@@ -20129,7 +20224,7 @@ var PdfOverlayController = class {
         this.mutationSnapshot = deepCloneState(this.state);
       } else {
         this.draggingSelection = false;
-        this.selectionIds.clear();
+        this.clearLassoSelection();
         this.lassoPolygon = [this.pixelToNorm(p)];
       }
       this.render();
@@ -20143,7 +20238,7 @@ var PdfOverlayController = class {
       this.mutationSnapshot = deepCloneState(this.state);
       this.placeImageAt(p, this.pendingImage);
       this.pendingImage = null;
-      this.pendingImageEl.textContent = "";
+      this.refreshToolbarState();
       this.persistMutation();
       this.render();
     }
@@ -20274,6 +20369,7 @@ var PdfOverlayController = class {
       }
     }
     this.selectionIds = selection;
+    this.updateLassoMenuPosition();
   }
   hitSelection(pixel) {
     for (const item of this.state.items) {
@@ -20324,8 +20420,8 @@ var PdfOverlayController = class {
         image.onload = () => {
           this.imageCache.set(src, image);
           this.pendingImage = { src, width: image.width, height: image.height };
-          this.pendingImageEl.textContent = "Ready";
-          new import_obsidian.Notice("\u753B\u50CF\u3092\u7F6E\u304D\u305F\u3044\u5834\u6240\u3092\u30AF\u30EA\u30C3\u30AF\u3057\u3066\u306D");
+          this.refreshToolbarState();
+          new import_obsidian.Notice("Click where you want to place the image.");
           this.render();
         };
         image.src = src;
@@ -20350,13 +20446,13 @@ var PdfOverlayController = class {
   }
   async exportSelectionToPng() {
     if (this.selectionIds.size === 0) {
-      new import_obsidian.Notice("\u5148\u306B\u6295\u3052\u7E04\u3067\u9078\u629E\u3057\u3066\u306D");
+      new import_obsidian.Notice("Select with lasso first.");
       return;
     }
     const selected = this.state.items.filter((item) => this.selectionIds.has(item.id));
     const bounds = this.getSelectionBoundsInPixels(selected);
     if (!bounds) {
-      new import_obsidian.Notice("\u9078\u629E\u7BC4\u56F2\u3092\u898B\u3064\u3051\u3089\u308C\u306A\u304B\u3063\u305F\u3088");
+      new import_obsidian.Notice("No selection found.");
       return;
     }
     const exportCanvas = document.createElement("canvas");
@@ -20364,7 +20460,7 @@ var PdfOverlayController = class {
     exportCanvas.height = Math.max(1, Math.ceil(bounds.maxY - bounds.minY));
     const ctx = exportCanvas.getContext("2d");
     if (!ctx) {
-      new import_obsidian.Notice("\u753B\u50CF\u30AD\u30E3\u30F3\u30D0\u30B9\u3092\u4F5C\u308C\u306A\u304B\u3063\u305F\u3088");
+      new import_obsidian.Notice("Could not create image canvas.");
       return;
     }
     for (const item of selected) {
@@ -20381,7 +20477,7 @@ var PdfOverlayController = class {
     }
     const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, "image/png"));
     if (!blob) {
-      new import_obsidian.Notice("\u30B9\u30AF\u30B7\u30E7\u751F\u6210\u306B\u5931\u6557\u3057\u305F\u3088");
+      new import_obsidian.Notice("Screenshot failed.");
       return;
     }
     const arrayBuffer = await blob.arrayBuffer();
@@ -20393,7 +20489,7 @@ var PdfOverlayController = class {
       index++;
     }
     await this.plugin.app.vault.createBinary(path, arrayBuffer);
-    new import_obsidian.Notice(`\u30B9\u30AF\u30B7\u30E7\u4FDD\u5B58\u5B8C\u4E86: ${path}`);
+    new import_obsidian.Notice(`Screenshot saved: ${path}`);
   }
   getSelectionBoundsInPixels(items) {
     let minX = Number.POSITIVE_INFINITY;
@@ -20486,6 +20582,7 @@ var PdfOverlayController = class {
       this.helperCtx.stroke();
       this.helperCtx.restore();
     }
+    this.updateLassoMenuPosition();
   }
   drawStroke(ctx, item, points, offsetX, offsetY) {
     if (points.length < 2) return;
